@@ -1,5 +1,5 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { connectRpc, disconnectRpc, statusRpc } from "./shared/contracts.ts";
+import { connectRpc, disconnectRpc, statusRpc, tunnelSetupRpc } from "./shared/contracts.ts";
 import { VERSION } from "./shared/version.ts";
 import {
   getVoiceButtonRpc,
@@ -9,17 +9,49 @@ import {
   voiceButtonStatusRpc,
 } from "./shared/voice-button.ts";
 import { Gateway } from "./server/gateway/service.ts";
+import { Tunnel } from "./server/tunnel/cloudflared.ts";
 import { detectVoiceHotkey, findChatGpt, isAccessibilityTrusted, launchOnMac, listShortcuts } from "./server/voice-button/mac.ts";
 import { readVoiceButton, writeVoiceButton } from "./server/voice-button/settings.ts";
 
 export default function contribute(server: PluginServerContext) {
   const gateway = new Gateway();
-  // The gateway starts in the background; a failure is kept and shown on the screen.
-  const started = gateway.start().catch((error) => console.log(`[god-mode] the gateway did not start: ${error?.message ?? error}`));
+  const tunnel = new Tunnel(gateway.port, (url) => gateway.setPublicUrl(url));
+  // Both start in the background; a failure is kept and shown on the screen.
+  const started = gateway
+    .start()
+    .then(() => tunnel.start())
+    .catch((error) => console.log(`[god-mode] did not start: ${error?.message ?? error}`));
 
   server.handle(statusRpc, async () => {
     await started;
-    return { version: VERSION, ...gateway.status() };
+    const t = tunnel.status();
+    const setup = t.setup;
+    return {
+      version: VERSION,
+      ...gateway.status(),
+      tunnel: {
+        hostname: t.record?.hostname ?? null,
+        url: t.record?.url ?? null,
+        running: t.running,
+        connected: t.connected,
+        setup: {
+          step: setup.step,
+          ...("loginUrl" in setup ? { loginUrl: setup.loginUrl, expiresAt: setup.expiresAt } : {}),
+          ...("url" in setup ? { url: setup.url } : {}),
+          ...("error" in setup ? { error: setup.error } : {}),
+        },
+      },
+    };
+  });
+  server.handle(tunnelSetupRpc, async () => {
+    await started;
+    const setup = await tunnel.beginSetup();
+    return {
+      step: setup.step,
+      ...("loginUrl" in setup ? { loginUrl: setup.loginUrl, expiresAt: setup.expiresAt } : {}),
+      ...("url" in setup ? { url: setup.url } : {}),
+      ...("error" in setup ? { error: setup.error } : {}),
+    };
   });
   server.handle(connectRpc, async () => {
     await started;
@@ -56,6 +88,7 @@ export default function contribute(server: PluginServerContext) {
 
 
   return () => {
+    void tunnel.stop();
     void gateway.stop();
   };
 }

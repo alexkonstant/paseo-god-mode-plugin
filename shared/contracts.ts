@@ -15,6 +15,24 @@ const connection = z.object({
 });
 export type ConnectionView = z.output<typeof connection>;
 
+const setup = z.object({
+  step: z.enum(["idle", "installing", "signing-in", "creating", "done", "failed"]),
+  loginUrl: z.string().optional(),
+  expiresAt: z.string().optional(),
+  url: z.string().optional(),
+  error: z.string().optional(),
+});
+export type SetupView = z.output<typeof setup>;
+
+const tunnel = z.object({
+  hostname: z.string().nullable(),
+  url: z.string().nullable(),
+  running: z.boolean(),
+  connected: z.boolean(),
+  setup,
+});
+export type TunnelView = z.output<typeof tunnel>;
+
 /** Whether the gateway runs, the public address the assistants use, and who is connected. */
 export const statusRpc = defineRpc({
   name: "god-mode.status",
@@ -26,7 +44,15 @@ export const statusRpc = defineRpc({
     error: z.string().nullable(),
     publicUrl: z.string().nullable(),
     connections: z.array(connection),
+    tunnel,
   }),
+});
+
+/** The Cloudflare button: installs cloudflared if needed and returns the sign-in link to open. */
+export const tunnelSetupRpc = defineRpc({
+  name: "god-mode.tunnel.setup",
+  input: z.object({}),
+  output: setup,
 });
 
 /** A five-minute sign-in code for connecting Claude or ChatGPT, and the address to paste there. */
