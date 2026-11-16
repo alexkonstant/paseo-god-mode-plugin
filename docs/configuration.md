@@ -1,51 +1,87 @@
-# Configuration
+# Setup
 
-God Mode is configured in Paseo's sidebar. The settings are kept on your Mac and written to your
-Site as environment variables, which is where the Site reads them.
+God Mode has no settings to tune: one address and two connections. This page covers what each
+button on its screen does, what it needs, and what God Mode keeps on the Mac.
 
-## Where settings live and when they apply
+## What you need
 
-- **On the Mac.** Section **3 · Preferences** of the sidebar; **Save** writes them to
-  `~/.paseo/god-mode/preferences.json` (under `$PASEO_HOME` when Paseo sets it).
-- **On the Site.** **Apply settings** (section 4) writes them, together with the link to this Mac, to
-  the Site's environment and redeploys it. An update or a first publish writes them too. A variable
-  reaches the Site only with a deploy.
-- Changing a variable in the Site's own settings in ChatGPT works as well, but once preferences are
-  saved on the Mac, the next Apply settings or update writes them over it. (Connecting a Site that
-  has no saved preferences yet takes its current variables as the preferences.)
+- A Mac running **Paseo 0.15.4** or newer with plugins on. The Mac has to be awake and online while
+  Claude or ChatGPT uses God Mode.
+- A domain in your own **Cloudflare** account. The free plan is enough; Cloudflare Registrar sells
+  domains at cost. Keep that account to yourself and protect it with two-factor sign-in: whoever can
+  edit its DNS or tunnels controls the address (see [security](security.md#the-tunnel-and-cloudflare)).
+- **Claude** with custom connectors (add them on claude.ai or in the desktop app; the phone app picks
+  them up, voice mode included), and/or **ChatGPT** Plus or Pro with custom MCP servers
+  (chatgpt.com/plugins, on the web).
+- For an install from GitHub, Node.js with npm: Paseo runs `npm ci` for God Mode's one runtime
+  dependency. Homebrew is optional (see below).
 
-## Settings
+## The address
 
-| Sidebar | Site variable | Values | Default | Effect |
-| --- | --- | --- | --- | --- |
-| Language | `PASEO_LANGUAGE` | A language code, such as `en` or `de` | empty: the user's language | The language ChatGPT speaks; model-facing text stays English. |
-| Model for new chats | `PASEO_NEW_CHAT_MODEL` | A model id or name `list_models` shows | empty: Paseo's default | The model `start_chat` uses unless the user names one or another runtime; it brings its runtime, so a Codex model makes Codex the default. |
-| Thinking for new chats | `PASEO_NEW_CHAT_THINKING` | A thinking level the model offers | empty: Paseo's default | The thinking level `start_chat` uses unless the user names one, where the chat's model offers it. |
-| Mode for new chats | `PASEO_NEW_CHAT_MODE` | `default`, `acceptEdits`, `auto`, `bypassPermissions`, `plan` | empty: Paseo's default | The mode `start_chat` uses in Claude chats; `bypassPermissions` skips every prompt in those chats. Codex chats keep Codex's default unless the user names a mode. |
-| Wait for an answer (seconds) | `PASEO_WAIT_SECONDS` | 0 to 25 | 15 | How long `start_chat` and `send_message` wait for a reply before answering "still working". |
-| Confirm risky actions | `PASEO_CONFIRM_RISKY` | `on`, `off` | on | ChatGPT reads back approvals, stops, archiving and updates and waits for a yes. See [security.md](security.md#writes). |
-| Keep a call log | `PASEO_LOG` | `on`, `off` | on | A row per tool call in the Site's D1 database, read with `get_logs`. |
-| (written by the plugin) | `PASEO_PAIRING_URL` | The link from `paseo pair` | none: required | The key to your Paseo; stored as a Site secret. Without it every tool but `get_logs` refuses. |
+**Address → Connect** on God Mode's screen:
 
-For the on/off settings, `off`, `false`, `0` and `no` (any case) mean off; anything else means on, and
-an empty value means the default.
+1. God Mode looks for `cloudflared` (Homebrew's, or its own copy in `~/.paseo/god-mode/bin/`). If it
+   is missing, it installs it with `brew install cloudflared`, or without Homebrew downloads
+   Cloudflare's release build.
+2. Cloudflare's sign-in page opens on the device where you pressed the button. Sign in, pick the
+   domain, press **Authorize**. The link is good for about ten minutes; press Connect again for a new one.
+3. God Mode creates a tunnel named `god-mode`, points `gm.<your domain>` at it, deletes the sign-in
+   key and starts the tunnel. The screen then shows `gm.<your domain> · Working`.
 
-Plugin actions have no setting of their own: what may run, and what asks first, is declared by each
-plugin ([contract](plugin-capabilities.md)).
+The tunnel runs as long as Paseo runs, and God Mode restarts it when it stops. If you already made a
+tunnel by hand, God Mode uses it as long as `~/.paseo/god-mode/tunnel.json` and the files in
+`~/.paseo/god-mode/tunnel/` describe it.
 
-## Paseo
+## Connecting Claude
 
-- Paseo 0.11 or newer on the Mac.
-- **The relay must be on** (Paseo's settings): the Site reaches the Mac only through it. Section
-  **1 · This Mac** checks it, along with Node.js (22.13 or newer), Git and the Codex CLI, which the
-  plugin uses to build, publish and check the Site.
-- The Mac awake and online while you use God Mode. When it is not, the tools say Paseo is offline and
-  change nothing.
+**Claude → Connect** copies the address (`https://gm.<your domain>/mcp`), shows a sign-in code and
+opens Claude's connectors (claude.ai/customize/connectors). There:
 
-## ChatGPT
+1. **Add custom connector**, name it **God Mode** (Claude shows this name to the model), paste the
+   address, **Add**. Leave the detected options: sign in now, register automatically.
+2. **Connect**: God Mode's sign-in page opens. Enter the code from God Mode's screen.
 
-- ChatGPT Plus or Pro: the plans that include ChatGPT Sites.
-- Section **5 · Use it in ChatGPT** links to the Site's plugin. If ChatGPT does not show it, install or
-  connect it in ChatGPT under Plugins, *Created by you*.
-- After an update that adds or changes tools, ChatGPT can take minutes to show them, and a chat keeps
-  the tools it started with: open a new chat. See [operations.md](operations.md#when-chatgpt-still-shows-the-old-tools).
+The connector is then available in Claude on the web, on the desktop and in the phone app, voice mode
+included. In Claude's connector settings you choose whether God Mode's tools ask before they run.
+
+## Connecting ChatGPT
+
+**ChatGPT → Connect** copies the address, shows a code and opens chatgpt.com/plugins. There:
+
+1. **Add → Add custom MCP server**, name it **God Mode**, paste the address as the **Server URL**,
+   choose **OAuth**, **Create**.
+2. God Mode's sign-in page opens: enter the code.
+
+ChatGPT's voice mode uses the plugins of your account, God Mode included.
+
+## Codes and disconnecting
+
+- A code is 8 digits, works once, for five minutes and five tries. If it ran out, press **New code** on
+  God Mode's screen (or Connect again) and enter the new one.
+- A connected assistant shows **Disconnect**: it signs that assistant out at once, and it has to be
+  connected again with a new code. Removing the connector in Claude or ChatGPT does not sign it out on
+  the Mac; use Disconnect for that.
+
+## What God Mode keeps on the Mac
+
+Everything is in `~/.paseo/god-mode/` (under `PASEO_HOME` if Paseo uses another home), readable only by
+you:
+
+| File | What it holds |
+| --- | --- |
+| `oauth.json` | Registered connections and their tokens, as SHA-256 hashes. |
+| `secret` | The key confirmations of plugin actions and slash commands are signed with. |
+| `calls.jsonl` | The call log: the latest 2000 tool calls, read by `get_logs`. |
+| `tunnel.json` | The tunnel's address, hostname and id. |
+| `tunnel/config.yml`, `tunnel/credentials.json` | The tunnel's configuration and credentials (`cloudflared` runs with them). |
+| `tunnel/cloudflared.log` | What `cloudflared` printed. |
+| `voice-button.json` | The voice button's settings. |
+| `bin/cloudflared` | Only when God Mode downloaded `cloudflared` itself. |
+
+God Mode reads Paseo's own `paseo.pid` and `local-credential` in `~/.paseo/` to reach the daemon, and
+never copies them.
+
+## The voice button
+
+One switch, **ChatGPT voice in Paseo**: a button in Paseo that opens ChatGPT's own voice chat. See
+[voice-button.md](voice-button.md).

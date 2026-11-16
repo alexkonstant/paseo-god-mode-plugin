@@ -11,7 +11,7 @@ Read from Paseo 0.11.4's code and checked on live chats (2026-10-18):
   argument hint, from the agent's runtime: Claude Code's own list, or what Paseo's Codex provider
   assembles. Nothing says where a command comes from or what it risks, and Paseo drops Claude Code's
   aliases (`/review` is listed only as `/code-review`). God Mode's provider adapters
-  (`gpt-site/core/slash.mjs`) add that.
+  (`server/core/slash.mjs`) add that.
 - **No command API.** A command runs when the chat receives the message `/name args` and the provider
   behind it interprets it. Anything else reaches the model as an ordinary message: Claude Code
   2.1.274 and later answer an unknown `/name` with a model turn. So God Mode sends only a name the chat
@@ -48,7 +48,6 @@ command menu does: a few seconds, no model call.
 | `args` | What follows the name, in the user's words. One line, at most 2000 characters, never starting with `/`. |
 | `if_busy` | `interrupt` only: after a `busy` answer and the user's explicit yes, stops the chat's work and runs the command. |
 | `confirmation` | From `needs_confirmation`, after the user's yes. |
-| `wait_seconds` | 0–25; default `PASEO_WAIT_SECONDS`. |
 
 What one call does, in order:
 
@@ -62,22 +61,15 @@ What one call does, in order:
    what it does, what this run adds (`--fix edits files`), that permissions are bypassed in the chat,
    and that it stops the current work when it does. Only the same chat, the same command text and the
    same interrupt decision run with that confirmation.
-6. Sends the message, then reads what the command's own turn did:
+6. Sends the message and returns as soon as it arrived. It does not report what the command did.
 
 | `outcome` | Meaning | `delivered` |
 | --- | --- | --- |
-| `done` | It did what it does: a compaction, with `context.before_tokens` and `after_tokens`. | true |
-| `replied` | Its output is in `reply` (a review, `/context`'s report, a custom command's answer). | true |
-| `refused` | The agent got it and declined, nothing changed: "Not enough messages to compact." | true |
-| `still_working` | Still running when the wait ended (a long compaction); check later with `read_chat`. | true |
-| `not_waiting` | Sent with `wait_seconds` 0. | true |
-| `waiting_for_approval` | It needs an approval first (`approval` says what). | true |
-| `error` | It ended with an error. | true |
+| `not_waiting` | It arrived; never run it again for this request. What it did: check later with `read_chat`. | true |
 | `busy`, `unavailable`, `needs_confirmation` | Nothing was sent. | false |
 
-The result comes from the timeline items after God Mode's own message, never from "the last thing the
-agent said": after `/compact` Paseo's last message is the previous turn's, and on Claude it even
-repeats the previous output after a done compaction.
+`read_chat` shows a done compaction as a line of the turn's text (`[context compacted from 32k
+tokens]`) and leaves out the previous output that Claude repeats after it.
 
 ## Support by provider
 
@@ -87,18 +79,18 @@ Checked live on Claude Code 2.1.296 through Paseo 0.11.4: a chat listed 56 comma
 
 | Command | God Mode | Notes |
 | --- | --- | --- |
-| `/compact [instructions]` | After a yes (disruptive) | Claude Code compacts; the answer gives the context before and after (live: 32k → 2k tokens in 5 s). A chat with too little to compact gets `refused`. |
-| `/context`, `/usage` (`/cost`, `/stats`) | At once | No model call; the report comes back as `reply`. |
+| `/compact [instructions]` | After a yes (disruptive) | Claude Code compacts (live: 32k → 2k tokens in 5 s). A chat with too little to compact declines: "Not enough messages to compact." |
+| `/context`, `/usage` (`/cost`, `/stats`) | At once | No model call; `read_chat` reads the report. |
 | `/code-review` (`/review`) | At once; `--fix` or `--comment` after a yes | Reads and reports unless `--fix` (edits files) or `--comment` (posts on the pull request). Live: found a planted bug in 6 s. |
 | `/security-review`, `/recap`, `/insights`, `/debug`, `/deep-research`, `/verify`, `/run`, `/skill-doctor`, `/list-agents`, `/reload-skills`, `/reload-plugins`, `/team-onboarding`, reference skills (`/claude-api`, `/dataviz`, `/workflow-authoring`) | At once | |
 | `/init`, `/simplify`, `/batch`, `/goal`, `/loop`, `/subtask`, `/update-config`, `/fewer-permission-prompts`, `/doctor`, `/plugin-authoring`, `/run-skill-generator` | After a yes (disruptive) | They change files, settings, or keep the agent working on its own. |
 | `/schedule`, `/design-sync` | After a yes (outward) | They reach Anthropic's cloud. |
 | Your own and your project's commands, plugin commands (`plugin:name`), MCP prompts (`mcp__server__prompt`), commands God Mode does not know | After a yes (risk unknown) | God Mode sees only their description. A project command that shadows a built-in name counts as the project's. |
-| `/clear` | Not from ChatGPT | It starts a new Claude session inside the chat, which Paseo does not follow. Use `archive_chat` and `start_chat`. |
-| `/rewind` | Not from ChatGPT | Rolls files and the conversation back to a message id God Mode does not have. |
-| `/model`, `/effort` | Not from ChatGPT | Would change the chat's model behind Paseo's back. `set_chat_model` changes the model and thinking level in Paseo itself, and the reason says so. |
-| `/fast`, `/advisor` | Not from ChatGPT | Would change the chat's settings behind Paseo's back. |
-| Session settings (`/config`, `/mcp`, `/rename`, `/add-dir`, `/output-style`, …), terminal screens, account and billing, other sessions (`/fork`, `/resume`, …), `/heapdump`, `/bug`, `/feedback`, `/export`, removed and internal commands | Not from ChatGPT | Each with its reason in the list. |
+| `/clear` | Not from here | It starts a new Claude session inside the chat, which Paseo does not follow. Use `archive_chat` and `start_chat`. |
+| `/rewind` | Not from here | Rolls files and the conversation back to a message id God Mode does not have. |
+| `/model`, `/effort` | Not from here | Would change the chat's model behind Paseo's back. `set_chat_model` changes the model and thinking level in Paseo itself, and the reason says so. |
+| `/fast`, `/advisor` | Not from here | Would change the chat's settings behind Paseo's back. |
+| Session settings (`/config`, `/mcp`, `/rename`, `/add-dir`, `/output-style`, …), terminal screens, account and billing, other sessions (`/fork`, `/resume`, …), `/heapdump`, `/bug`, `/feedback`, `/export`, removed and internal commands | Not from here | Each with its reason in the list. |
 
 ### Codex
 
@@ -107,7 +99,7 @@ Checked against Paseo 0.11.4's Codex provider and covered by tests with a fake d
 
 | Command | God Mode | How it runs |
 | --- | --- | --- |
-| `/compact` | After a yes (disruptive); no arguments | Paseo calls Codex's `thread/compact/start` outside any turn. Codex stops a turn in progress, so a working chat is `busy` first. The result is read from the timeline as it arrives. |
+| `/compact` | After a yes (disruptive); no arguments | Paseo calls Codex's `thread/compact/start` outside any turn. Codex stops a turn in progress, so a working chat is `busy` first. |
 | `/goal [<objective>\|pause\|resume\|clear]` | After a yes; runs beside a working turn | Paseo calls Codex's `thread/goal/*`. Listed only when Paseo runs Codex with goals. |
 | Skills | After a yes | Paseo sends Codex a native skill input. |
 | Custom prompts (`prompts:name`) | After a yes | Paseo fills in `~/.codex/prompts/name.md` (`$1`…`$9`, `$ARGUMENTS`, `NAME=value`) and sends the text, as Codex's own terminal app does. |
@@ -122,8 +114,8 @@ Paseo has not been verified, and God Mode does not send what it cannot vouch for
 
 ## What it does not guarantee
 
-- **That the user said yes.** The confirmation proves what was put to the user; asking is ChatGPT's
-  part. See [security.md](security.md#slash-commands).
+- **That the user said yes.** The confirmation proves what was put to the user; asking is the
+  assistant's part. See [security.md](security.md#slash-commands).
 - **What a custom command does.** God Mode sees its description, not its file; a command can run shell
   commands of its own before the model sees it.
 - **That a command asks before acting.** Commands run inside the chat: its folder, its conversation

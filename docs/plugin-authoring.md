@@ -1,8 +1,8 @@
 # Writing a plugin God Mode can use
 
-What a Paseo plugin needs so that ChatGPT can read it and act through it: one extra RPC,
-`meta.describe`, answering [`paseo.capabilities/1`](plugin-capabilities.md). This page is the
-how-to; the contract has the exact rules.
+What a Paseo plugin needs so that Claude or ChatGPT can read it and act through it with God Mode:
+one extra RPC, `meta.describe`, answering [`paseo.capabilities/1`](plugin-capabilities.md). This
+page is the how-to; the contract has the exact rules.
 
 ## Requirements
 
@@ -110,7 +110,7 @@ Leave out anything a misheard sentence must never trigger and anything a listene
 - settings writes, installs, updates, patches, restarts of Paseo or of the plugin;
 - downloads and deletions of large data (models, archives);
 - RPCs that answer with binary data (audio, images as base64);
-- anything slower than a few seconds (God Mode gives a tool call 45 seconds in all, and Paseo stops
+- anything slower than a few seconds (God Mode gives a tool call 30 seconds in all, and Paseo stops
   waiting for a plugin RPC after 30).
 
 ## Testing
@@ -132,7 +132,7 @@ sure nothing was dropped:
 
 ```sh
 node --input-type=module -e '
-  import { parseCapabilities } from "/path/to/paseo-god-mode-plugin/gpt-site/core/capabilities.mjs";
+  import { parseCapabilities } from "/path/to/paseo-god-mode-plugin/server/core/capabilities.mjs";
   import { describeLamp } from "/path/to/your-plugin/server/capabilities.server.ts";
   const parsed = parseCapabilities(describeLamp());
   console.log(parsed.invalid ?? parsed.capabilities.skipped);'
@@ -142,15 +142,16 @@ It must print `[]`.
 
 ## Checking it live
 
-From a checkout of God Mode, in `gpt-site/` after `npm ci`, with your plugin reloaded in Paseo (the
-probe takes the pairing link from `PASEO_PAIRING_URL` or asks `paseo pair` on the Mac):
+From a checkout of God Mode, after `npm ci` at its root, on the Mac that runs Paseo, with your plugin
+reloaded in Paseo (the probe connects to the daemon with its local credential, from `PASEO_HOME`,
+default `~/.paseo`):
 
 ```sh
-node core/probe.mjs plugins                                    # the catalog, as ChatGPT gets it
-node core/probe.mjs plugin-read lamp --json                    # the default read, structured
-node core/probe.mjs plugin-act lamp dim --args '{"level":50}'  # runs for real
-node core/probe.mjs plugin-act lamp off --json                 # needs_confirmation, with the token
-node core/probe.mjs plugin-act lamp off --confirm <token>      # runs for real
+node server/core/probe.mjs plugins                                    # the catalog, as the assistant gets it
+node server/core/probe.mjs plugin-read lamp --json                    # the default read, structured
+node server/core/probe.mjs plugin-act lamp dim --args '{"level":50}'  # runs for real
+node server/core/probe.mjs plugin-act lamp off --json                 # needs_confirmation, with the token
+node server/core/probe.mjs plugin-act lamp off --confirm <token>      # runs for real
 ```
 
 The probe runs God Mode's code from that checkout, so it shows what a God Mode built from it will do.

@@ -17,19 +17,13 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            gpt-site/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: The tag is the version in package.json
         run: |
           version="$(node -p 'require("./package.json").version')"
           [ "${GITHUB_REF_NAME}" = "v${version}" ] || { echo "Tag ${GITHUB_REF_NAME} does not match package.json ${version}."; exit 1; }
       - run: npm ci
-      - run: npm ci
-        working-directory: gpt-site
       - run: npm run check
-      - run: npm run build
-        working-directory: gpt-site
       - name: Release notes from CHANGELOG.md
         run: |
           version="${GITHUB_REF_NAME#v}"

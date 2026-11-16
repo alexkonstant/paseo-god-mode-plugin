@@ -1,8 +1,8 @@
 # Plugin capabilities: `paseo.capabilities/1`
 
-The contract a Paseo plugin implements to be usable from ChatGPT through God Mode: one RPC,
-`meta.describe`, answering the shape described here. God Mode knows no plugin by name, so a plugin
-that implements this contract needs no God Mode release.
+The contract a Paseo plugin implements to be usable from Claude or ChatGPT through God Mode: one
+RPC, `meta.describe`, answering the shape described here. God Mode knows no plugin by name, so a
+plugin that implements this contract needs no God Mode release.
 
 - How God Mode lists, reads and runs what you describe: [plugin-tools.md](plugin-tools.md).
 - How to implement and test it in a plugin: [plugin-authoring.md](plugin-authoring.md).
@@ -14,13 +14,14 @@ Versions: the base contract works with God Mode 0.8.0 and later. The keys `outco
 
 ## Why a plugin describes itself
 
-Paseo tells a remote client which plugins are installed and lets it call any plugin RPC by name
+Paseo tells a client which plugins are installed and lets it call any plugin RPC by name
 (`invokePluginRpc`). It does not say which methods exist, what they take, or which ones only read
 and which ones change something. So a plugin opts in by answering `meta.describe`; one that does
 not is listed as offering nothing, and God Mode calls nothing else of it.
 
-The description is not a permission system: a paired client can call any plugin RPC anyway. It
-decides what ChatGPT is offered, when the user is asked first, and what ChatGPT hears back.
+The description is not a permission system: any client of the Paseo daemon can call any plugin RPC
+anyway. It decides what the assistant is offered, when the user is asked first, and what the
+assistant hears back.
 
 ## The RPC
 
@@ -59,7 +60,7 @@ decides what ChatGPT is offered, when the user is asked first, and what ChatGPT 
 | Field | Rules |
 | --- | --- |
 | `schema` | Exactly `"paseo.capabilities/1"`. |
-| `title` | Required. The plugin's name to ChatGPT; at most 80 characters. |
+| `title` | Required. The plugin's name to the assistant; at most 80 characters. |
 | `summary` | Optional. One line for the catalog; at most 300. |
 | `aliases` | Optional. Other names people say, in any language: up to 20, each cut at 60. |
 | `operations` | Required array. At most 40 usable operations are kept; any beyond are listed as dropped. |
@@ -71,8 +72,8 @@ decides what ChatGPT is offered, when the user is asked first, and what ChatGPT 
 | `id` | Required, unique, `^[a-z][a-z0-9_]*$`, at most 64 characters. Of two equal ids, the first stays. |
 | `kind` | `"read"` or `"action"`. |
 | `method` | The real RPC of this plugin behind the operation: `^[a-z][a-z0-9._-]*$` (the SDK's rule), at most 120, never `meta.*`. Operations may share one. |
-| `title` | Required; at most 80. What ChatGPT names the operation by. |
-| `description` | Optional; at most 600. ChatGPT gets it with the operation in the catalog, and a read's answer carries it as `about`: say there how to read the answer. |
+| `title` | Required; at most 80. What the assistant names the operation by. |
+| `description` | Optional; at most 600. The assistant gets it with the operation in the catalog, and a read's answer carries it as `about`: say there how to read the answer. |
 | `input` | JSON Schema of `"type": "object"` for what the caller supplies. Left out: no arguments. |
 | `fixed` | Optional object God Mode merges into every call. None of its keys may be in `input.properties`. |
 | `default` | Reads only. `true` marks the plugin's main read; when several say so, the first wins. |
@@ -87,8 +88,8 @@ decides what ChatGPT is offered, when the user is asked first, and what ChatGPT 
 
 Pick the risk by what a run by mistake costs: `low` stays on the machine and one more call undoes
 it; `outward` reaches people or services; `disruptive` interrupts work or cuts the machine off;
-`destructive` loses something for good. God Mode acts on one difference only, `low` or not; ChatGPT
-sees the level with every action and in `needs_confirmation`.
+`destructive` loses something for good. God Mode acts on one difference only, `low` or not; the
+assistant sees the level with every action and in `needs_confirmation`.
 
 ### Validation
 
@@ -114,7 +115,7 @@ Without `outcome`, any answer counts as done. With it, God Mode reads the answer
 - `error` names a top-level text field (or several, such as `["code", "error"]`) that is not empty
   when it did not; the non-empty ones, joined, are the reason. With neither failing, it is done.
 - A refused action answers `outcome: "refused"`, `delivered: false` and `reason`; a refused read
-  answers `refused: true` and `reason`. ChatGPT is told that nothing happened.
+  answers `refused: true` and `reason`. The assistant is told that nothing happened.
 - An answer that is not an object counts as done. A thrown error still reads as "Paseo request
   failed … unknown whether it took effect": throw only when you cannot tell.
 - Name only fields that mean failure. A status field that reports something unrelated (the last error
@@ -123,7 +124,8 @@ Without `outcome`, any answer counts as done. With it, God Mode reads the answer
 ## target: confirming against your own data
 
 An action that acts on one thing (a ticket, a message, a chat) can have its confirmation built from
-that thing, read from your plugin by God Mode, instead of only from the arguments ChatGPT passed:
+that thing, read from your plugin by God Mode, instead of only from the arguments the assistant
+passed:
 
 ```json
 { "id": "ticket", "kind": "read", "method": "desk.ticket", "title": "One ticket",
@@ -157,7 +159,7 @@ that thing, read from your plugin by God Mode, instead of only from the argument
 - Each shown value is cut to one line of plain text (at most 200 characters, no control characters);
   a field whose name looks secret is redacted.
 - A read by id is the simplest target: it finds the thing whatever lists show.
-- There is no name search: finding the thing stays with your reads, which ChatGPT calls first.
+- There is no name search: finding the thing stays with your reads, which the assistant calls first.
 
 What this guarantees is in [security.md](security.md#plugin-actions-and-their-confirmation).
 
@@ -171,9 +173,10 @@ tickets, web pages. It is a signal to the model, not a filter.
 
 ## chronological: lists that run in time order
 
-The answer reaches ChatGPT twice: whole, as `structuredContent`, and as text for speech, where the
-`result` lines are cut at 1,500 characters. Cut from its end, as any value is, a conversation keeps
-its oldest messages and loses the newest, which are the ones that matter.
+The answer goes out twice: whole, as `structuredContent`, and as text for speech, where the
+`result` lines are cut at 1,500 characters. ChatGPT's model sees both; Claude's model sees only the
+text. Cut from its end, as any value is, a conversation keeps its oldest messages and loses the
+newest, which are the ones that matter.
 
 `output.chronological` names the fields of the answer that are lists running from the oldest item to
 the newest. When the lines are too long, those lists are shortened from the start instead: as many of
@@ -201,5 +204,5 @@ cursor as arguments, answer the newest page first, and say whether anything earl
   `{target.field}` placeholders stay as written) and `untrusted` adds no note. On one older than
   0.16.0, `output.chronological` is ignored (the text of a long list is cut from its end). Release a
   plugin that relies on them after God Mode 0.10.0, or 0.16.0, is live.
-- Renaming an operation id or removing an operation is visible to ChatGPT at once (the catalog is read
-  on every call); there is nothing to migrate in God Mode.
+- Renaming an operation id or removing an operation is visible to the assistant at once (the catalog
+  is read on every call); there is nothing to migrate in God Mode.

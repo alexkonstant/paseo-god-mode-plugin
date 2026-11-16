@@ -14,13 +14,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            gpt-site/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
-      - run: npm ci
-        working-directory: gpt-site
-      # Typecheck and tests of the plugin, then of the Site.
+      # Typecheck and tests: the plugin, its gateway and the MCP core.
       - run: npm run check
-      - run: npm run build
-        working-directory: gpt-site

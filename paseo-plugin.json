@@ -1,9 +1,15 @@
 {
   "id": "god-mode",
   "name": "God Mode",
-  "description": "Talk to ChatGPT. Every Paseo agent obeys. Full voice and chat control of Paseo from ChatGPT, set up from the sidebar.",
+  "description": "Talk to Claude or ChatGPT. Every Paseo agent obeys. Voice and chat control of Paseo from Claude and ChatGPT, through your own Cloudflare tunnel, set up from the sidebar.",
   "icon": "assets/icon.png",
   "requirements": {
-    "paseo": ">=0.11.0"
-  }
+    "paseo": ">=0.15.4"
+  },
+  "build": [
+    "npm",
+    "ci",
+    "--omit=dev",
+    "--ignore-scripts"
+  ]
 }

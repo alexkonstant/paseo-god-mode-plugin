@@ -1,11 +1,67 @@
 # Changelog
 
-All notable changes to God Mode. One version covers the Paseo plugin and the ChatGPT Site it
-publishes; it follows [Semantic Versioning](https://semver.org), and this file follows
+All notable changes to God Mode. One version covers the whole plugin: its screen, its gateway and
+the MCP core behind it (up to 0.20 also the ChatGPT Site it published). It follows
+[Semantic Versioning](https://semver.org), and this file follows
 [Keep a Changelog](https://keepachangelog.com). Each `## [X.Y.Z]` section becomes the notes of the
 GitHub release vX.Y.Z.
 
-## [Unreleased]
+## [1.0.0] - 2026-11-16
+
+God Mode now serves Claude as well as ChatGPT, from the Mac itself. The ChatGPT Site is gone: the
+plugin runs the MCP server, your own Cloudflare tunnel gives it an address, and Claude and ChatGPT
+both connect to that address with a sign-in code from God Mode's screen. Claude's voice mode on the
+phone drives Paseo the way ChatGPT's Live voice did.
+
+### Added
+
+- **Claude.** Add God Mode as a custom connector in Claude (web, desktop or the phone app, voice mode
+  included): the same tools and rules ChatGPT has.
+- **A gateway in the plugin.** The MCP server runs inside God Mode on the Mac, on 127.0.0.1:47860, and
+  answers both assistants at one address.
+- **Sign-in with OAuth.** Claude and ChatGPT register themselves, only with their own callbacks, and the
+  user signs in with an 8-digit code from God Mode's screen that works once, for five minutes and five
+  tries. Access tokens last an hour; a refresh token is spent on use, and one that comes back signs that
+  connection out. Tokens are kept on the Mac as hashes only.
+- **The address on Cloudflare, from one button.** God Mode installs `cloudflared` when it is missing,
+  opens Cloudflare's sign-in, creates a tunnel and `gm.<your domain>`, deletes the sign-in key and
+  keeps the tunnel running, restarting it when it stops.
+- **One screen of three buttons.** The address, Connect Claude and Connect ChatGPT: each Connect opens
+  the right page, copies the address and shows the code; a connected assistant has Disconnect.
+
+### Changed
+
+- **Paseo is reached directly.** The core talks to the daemon on the same Mac with its local credential,
+  not through the relay: a read takes tens of milliseconds instead of about a second.
+- **Writes never wait for the agent.** `send_message`, `start_chat`, `answer_questions` and
+  `run_slash_command` answer as soon as the message arrived (`not_waiting`, `delivered: true`);
+  what the agent said is read with `read_chat`. The `wait_seconds` argument is gone.
+- **Nothing to configure.** The assistant answers in the user's language with the Russian hints always
+  on; a new chat starts without permission prompts (`bypassPermissions`) where its runtime has that
+  mode, on the model and effort the user names; risky actions are always read back first; the call log
+  is always kept, in `~/.paseo/god-mode/calls.jsonl` on the Mac.
+- Confirmations of plugin actions and slash commands are signed with God Mode's own secret on the Mac.
+- Tool answers say "God Mode" or "the app" where they said "ChatGPT".
+- The voice button is one switch, "ChatGPT voice in Paseo"; its other options keep their defaults.
+- Needs Paseo 0.15.4 or newer. A GitHub install runs `npm ci` for the one runtime dependency,
+  `@getpaseo/client`.
+- A named chat's subagents come 15 per answer, so that an answer stays within the size known to reach
+  the model whole: `read_activity` takes `offset` and answers `offset` and `next_offset`. The
+  default budget of its text is 6000 characters when a chat is named, so each subagent of the page keeps
+  its line. Without a chat nothing changes (what is at work now, the first six of each chat), and the text
+  says how many subagents of a chat are not listed and that naming the chat lists them.
+- `node server/core/probe.mjs activity` takes `--offset`.
+
+### Removed
+
+- The ChatGPT Site, its release engine (publish, update, roll back, the live checks and the ledger),
+  the ChatGPT sign-in through the Codex CLI, the environment checks, and the pairing link God Mode used
+  to keep at OpenAI.
+- `update_status` and `update_site`.
+- The settings for language, new chats' model, thinking and mode, the reply wait, confirming risky
+  actions and the call log.
+- The `server/discover` answer: God Mode no longer claims MCP revision 2026-07-28, which it did not
+  fully implement, so Claude and ChatGPT use `initialize`.
 
 ### Fixed
 
@@ -15,15 +71,6 @@ GitHub release vX.Y.Z.
   status and result; the model and effort are still only what Paseo observed, `null` where it has not
   reported them, and running subagents still come first.
 - Every subagent `read_activity` lists has its result: for a named chat only the first six were read.
-
-### Changed
-
-- A named chat's subagents come 15 per answer, so that an answer stays within the size known to reach
-  ChatGPT's model whole: `read_activity` takes `offset` and answers `offset` and `next_offset`. The
-  default budget of its text is 6000 characters when a chat is named, so each subagent of the page keeps
-  its line. Without a chat nothing changes (what is at work now, the first six of each chat), and the text
-  says how many subagents of a chat are not listed and that naming the chat lists them.
-- `node core/probe.mjs activity` takes `--offset`.
 
 ## [0.20.0] - 2026-11-08
 
