@@ -6,6 +6,14 @@ the MCP core behind it (up to 0.20 also the ChatGPT Site it published). It follo
 [Keep a Changelog](https://keepachangelog.com). Each `## [X.Y.Z]` section becomes the notes of the
 GitHub release vX.Y.Z.
 
+## [1.0.1] - 2026-11-16
+
+### Fixed
+
+- Paseo refused to load 1.0.0: the manifest's `build` gave the words of one command where Paseo
+  takes a list of commands, so the plugin failed on every load and installing it from GitHub did not
+  work. It is `[["npm", "ci", "--omit=dev", "--ignore-scripts"]]` now.
+
 ## [1.0.0] - 2026-11-16
 
 God Mode now serves Claude as well as ChatGPT, from the Mac itself. The ChatGPT Site is gone: the
