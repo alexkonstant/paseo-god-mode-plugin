@@ -1,17 +1,5 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import {
-  checkSlugRpc,
-  connectSiteRpc,
-  createSiteRpc,
-  environmentRpc,
-  getPreferencesRpc,
-  listSitesRpc,
-  loginStartRpc,
-  loginStatusRpc,
-  releaseStartRpc,
-  releaseStatusRpc,
-  setPreferencesRpc,
-} from "./shared/contracts.ts";
+import { connectRpc, disconnectRpc, statusRpc } from "./shared/contracts.ts";
 import { VERSION } from "./shared/version.ts";
 import {
   getVoiceButtonRpc,
@@ -20,35 +8,27 @@ import {
   voiceButtonLaunchRpc,
   voiceButtonStatusRpc,
 } from "./shared/voice-button.ts";
-import { LoginManager } from "./server/codex/login.ts";
-import { checkEnvironment } from "./server/environment.ts";
-import { ReleaseService } from "./server/release/service.ts";
+import { Gateway } from "./server/gateway/service.ts";
 import { detectVoiceHotkey, findChatGpt, isAccessibilityTrusted, launchOnMac, listShortcuts } from "./server/voice-button/mac.ts";
 import { readVoiceButton, writeVoiceButton } from "./server/voice-button/settings.ts";
 
 export default function contribute(server: PluginServerContext) {
-  const releases = new ReleaseService();
-  const logins = new LoginManager();
+  const gateway = new Gateway();
+  // The gateway starts in the background; a failure is kept and shown on the screen.
+  const started = gateway.start().catch((error) => console.log(`[god-mode] the gateway did not start: ${error?.message ?? error}`));
 
-  server.handle(environmentRpc, async () => ({ version: VERSION, checks: await checkEnvironment() }));
-  server.handle(loginStartRpc, () => logins.start());
-  server.handle(loginStatusRpc, ({ loginId }) => logins.status(loginId));
-
-  server.handle(listSitesRpc, async () => ({
-    sites: (await releases.listSites()).map((s) => ({
-      projectId: s.id,
-      title: s.title,
-      slug: s.slug,
-      url: s.current_live_url,
-      latestVersion: s.latest_version_number,
-    })),
-  }));
-  server.handle(checkSlugRpc, ({ slug }) => releases.checkSlug(slug));
-  server.handle(createSiteRpc, async ({ title, slug }) => ({ site: await releases.create(title, slug) }));
-  server.handle(connectSiteRpc, async ({ projectId }) => ({ site: await releases.connect(projectId) }));
-
-  server.handle(getPreferencesRpc, async () => ({ preferences: await releases.getPreferences() }));
-  server.handle(setPreferencesRpc, async ({ preferences }) => ({ preferences: await releases.setPreferences(preferences) }));
+  server.handle(statusRpc, async () => {
+    await started;
+    return { version: VERSION, ...gateway.status() };
+  });
+  server.handle(connectRpc, async () => {
+    await started;
+    return gateway.connect();
+  });
+  server.handle(disconnectRpc, async ({ id }) => {
+    await started;
+    return { connections: gateway.disconnect(id) };
+  });
 
   server.handle(getVoiceButtonRpc, async () => ({ settings: await readVoiceButton() }));
   server.handle(setVoiceButtonRpc, async ({ settings }) => ({ settings: await writeVoiceButton(settings) }));
@@ -74,8 +54,8 @@ export default function contribute(server: PluginServerContext) {
     return launchOnMac(settings);
   });
 
-  server.handle(releaseStatusRpc, ({ log }) => releases.status(log));
-  server.handle(releaseStartRpc, async ({ action, version }) => ({ job: await releases.start(action, version) }));
 
-  return () => logins.close();
+  return () => {
+    void gateway.stop();
+  };
 }

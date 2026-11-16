@@ -16,6 +16,7 @@ const PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 
 // How God Mode reaches Paseo: `daemon` has url() and credential() for the daemon on this Mac and
 // secret, the key confirmations are signed with. Confirming risky actions is always on.
+/** @param {{ daemon?: { url(): string | null, credential(): string | null, secret: string } | null }} [options] */
 export function readConfig({ daemon = null } = {}) {
   return { daemon, confirmRisky: true };
 }
