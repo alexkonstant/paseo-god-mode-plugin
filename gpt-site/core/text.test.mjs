@@ -394,6 +394,7 @@ test("activity shows running subagents first, then those finished this turn, wit
     activityText(a),
     [
       "Auth refactor (jobby-jobs) is working, 35 min into the turn: waiting for 1 subagent(s).",
+      "1 more subagent(s) of this chat are not listed: name the chat to list them all, finished ones included.",
       '- Explore (Opus 5.5, Max effort) "task run": running for 29 min, now reading session.ts.',
       '- Explore (Opus 5.5, Max effort) "task done": completed after 3 min. Result: 14 routes',
     ].join("\n"),

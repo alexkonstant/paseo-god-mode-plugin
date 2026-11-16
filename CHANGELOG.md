@@ -7,6 +7,24 @@ GitHub release vX.Y.Z.
 
 ## [Unreleased]
 
+### Fixed
+
+- `read_activity` for a named chat lists every one of its subagents. A finished subagent that started
+  before the chat's latest prompt only counted: `subagents_done` said 5 and `subagents` came back empty,
+  so nothing told which models the finished ones had run on. Each comes with its model, effort, task,
+  status and result; the model and effort are still only what Paseo observed, `null` where it has not
+  reported them, and running subagents still come first.
+- Every subagent `read_activity` lists has its result: for a named chat only the first six were read.
+
+### Changed
+
+- A named chat's subagents come 15 per answer, so that an answer stays within the size known to reach
+  ChatGPT's model whole: `read_activity` takes `offset` and answers `offset` and `next_offset`. The
+  default budget of its text is 6000 characters when a chat is named, so each subagent of the page keeps
+  its line. Without a chat nothing changes (what is at work now, the first six of each chat), and the text
+  says how many subagents of a chat are not listed and that naming the chat lists them.
+- `node core/probe.mjs activity` takes `--offset`.
+
 ## [0.20.0] - 2026-11-08
 
 ### Added

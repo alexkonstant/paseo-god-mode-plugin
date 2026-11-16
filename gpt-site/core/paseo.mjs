@@ -57,6 +57,7 @@ import {
   settleChat,
   settleRow,
   snippet,
+  subagentPage,
   subagentRef,
   toIso,
   toolCallData,
@@ -121,6 +122,9 @@ const SEARCH_CONCURRENCY = 8;
 const ACTIVITY_SCAN = 12;
 const ACTIVITY_RECENT_MS = 3 * 3_600_000;
 const SUBAGENTS_SHOWN = 6;
+// read_activity for a named chat: how many of its subagents one answer lists, each with its result,
+// so that an answer stays within the size known to reach ChatGPT's model whole.
+const SUBAGENTS_PAGE = 15;
 const SUBAGENT_TAIL = 12;
 // show_images: what one answer carries (a Paseo screenshot is 50-500 KB) and how far it looks.
 const IMAGE_MAX_BYTES = 1_000_000;
@@ -1146,39 +1150,32 @@ export async function showImages(pairingUrl, args = {}) {
 }
 
 // What a chat's agent and its subagents are doing now. `known` saves a second listing when the
-// caller already has the subagents. `limit` is how many subagents are listed; the first
-// SUBAGENTS_SHOWN of them are also read in detail (current step, result), the rest come from the
-// listing alone, which already carries their model and effort.
-async function activityOf(client, chat, { known, limit = SUBAGENTS_SHOWN } = {}) {
+// caller already has the subagents. With `offset` (a chat asked for by name) the list is all its
+// subagents, of every turn, SUBAGENTS_PAGE at a time; without it, the first SUBAGENTS_SHOWN of the
+// latest turn. Every subagent listed is read in detail (current step, result).
+async function activityOf(client, chat, { known, offset } = {}) {
   const [subagents, prompts, tail] = await Promise.all([
     known ?? listSubagents(client, chat.id),
     client.listAgentTimelinePrompts(chat.id).then((r) => r.prompts ?? []).catch(() => []),
     isRunning(chat) ? client.fetchAgentTimeline(chat.id, { direction: "tail", limit: 40, projection: "projected" }).catch(() => null) : null,
   ]);
   const turnStart = prompts.at(-1);
-  const startedAt = Date.parse(turnStart?.timestamp ?? "") || 0;
-  // The order activityData lists them in, so the ones read in detail are the ones listed first.
-  const shown = [
-    ...subagents.filter((s) => s.status === "running"),
-    ...subagents
-      .filter((s) => s.status !== "running" && Date.parse(s.createdAt) >= startedAt)
-      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
-  ].slice(0, SUBAGENTS_SHOWN);
+  const listing = { turnStartedAt: turnStart?.timestamp ?? null, allTurns: offset !== undefined, offset, limit: offset === undefined ? SUBAGENTS_SHOWN : SUBAGENTS_PAGE };
+  // The ones activityData lists.
+  const { page: shown } = subagentPage(subagents, listing);
   const detailed = new Map(
-    await Promise.all(
-      shown.map(async (s) => {
-        try {
-          const page = await client.fetchProviderSubagentTimeline(chat.id, s.id, { direction: "tail", limit: SUBAGENT_TAIL });
-          const items = page.rows.map((r) => r.item).reverse();
-          const step = items.find(isStep);
-          const result = items.find((i) => i.type === "assistant_message")?.text;
-          // Whole: activityData cuts it to fit and says how long it is.
-          return [s.id, { ...s, step: describeStep(step), result: result ? withoutImages(result) : null }];
-        } catch {
-          return [s.id, s];
-        }
-      }),
-    ),
+    await mapLimit(shown, SUBAGENTS_SHOWN, async (s) => {
+      try {
+        const page = await client.fetchProviderSubagentTimeline(chat.id, s.id, { direction: "tail", limit: SUBAGENT_TAIL });
+        const items = page.rows.map((r) => r.item).reverse();
+        const step = items.find(isStep);
+        const result = items.find((i) => i.type === "assistant_message")?.text;
+        // Whole: activityData cuts it to fit and says how long it is.
+        return [s.id, { ...s, step: describeStep(step), result: result ? withoutImages(result) : null }];
+      } catch {
+        return [s.id, s];
+      }
+    }),
   );
   const own = (tail?.entries ?? [])
     .filter((e) => !turnStart || e.seqStart >= turnStart.seq)
@@ -1188,9 +1185,8 @@ async function activityOf(client, chat, { known, limit = SUBAGENTS_SHOWN } = {})
   return activityData({
     chat,
     subagents: subagents.map((s) => detailed.get(s.id) ?? s),
-    turnStartedAt: turnStart?.timestamp ?? null,
     parentStep: describeStep(own),
-    limit,
+    ...listing,
   });
 }
 
@@ -1201,17 +1197,18 @@ export async function readActivity(pairingUrl, args = {}) {
 }
 
 // read_activity over an open connection (tests drive it with a fake client).
-export async function readActivityOn(client, { chat, maxChars } = {}) {
-  const max = clamp(maxChars ?? 1500, 200, 6000);
+export async function readActivityOn(client, { chat, maxChars, offset } = {}) {
   const chats = await fetchChats(client);
   if (chat) {
     const picked = await pickChat(client, chat, chats, { read: true });
     if (picked.ask) return picked.ask;
-    // One chat asked for by name: every subagent of it, so its models and efforts are all there.
-    const activity = await activityOf(client, picked.chat, { limit: Infinity });
+    // One chat asked for by name: every subagent of it, finished ones of earlier turns too, so its
+    // models and efforts are all there. A whole page fits the longest text, so each keeps its line.
+    const activity = await activityOf(client, picked.chat, { offset: offset ?? 0 });
     const summary = activity.working ? "working" : "not working";
-    return withNote({ text: truncate(activityText(activity), max), data: { summary, chats: [activity] } }, picked.note);
+    return withNote({ text: truncate(activityText(activity), clamp(maxChars ?? 6000, 200, 6000)), data: { summary, chats: [activity] } }, picked.note);
   }
+  const max = clamp(maxChars ?? 1500, 200, 6000);
   const now = Date.now();
   const candidates = chats.filter((c) => isRunning(c) || now - Date.parse(c.updatedAt) < ACTIVITY_RECENT_MS).slice(0, ACTIVITY_SCAN);
   await countSubagents(client, candidates);

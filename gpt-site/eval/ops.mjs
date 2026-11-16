@@ -291,7 +291,7 @@ export function createOps({ world, scenario = {}, text, slash = null, models = n
 
   // The world's subagents as Paseo's descriptors, with the steps and results read from their
   // timelines already filled in.
-  function activityOf(c) {
+  function activityOf(c, listing = {}) {
     const turn = c.turns.at(-1);
     const subagents = c.subagents.map((s) => ({
       id: s.id,
@@ -307,15 +307,16 @@ export function createOps({ world, scenario = {}, text, slash = null, models = n
       result: s.result,
     }));
     const lastCall = turn?.calls?.filter((call) => call.status === "running").at(-1) ?? turn?.calls?.at(-1);
-    return text.activityData({ chat: c, subagents, turnStartedAt: turn?.at ?? null, parentStep: isRunning(c) ? text.describeStep(lastCall) : null, now });
+    return text.activityData({ chat: c, subagents, turnStartedAt: turn?.at ?? null, parentStep: isRunning(c) ? text.describeStep(lastCall) : null, now, ...listing });
   }
 
-  async function readActivity(_url, { chat, maxChars } = {}) {
-    log("readActivity", { chat, maxChars });
+  async function readActivity(_url, { chat, maxChars, offset } = {}) {
+    log("readActivity", { chat, maxChars, ...(offset === undefined ? {} : { offset }) });
     if (chat) {
       const picked = pickChat(chat, { read: true });
       if (picked.ask) return picked.ask;
-      const a = activityOf(picked.chat);
+      // As core/paseo.mjs: a named chat lists every subagent, of every turn, 15 per answer.
+      const a = activityOf(picked.chat, { allTurns: true, offset: offset ?? 0, limit: 15 });
       return withNote({ text: text.activityText(a), data: { summary: a.working ? "working" : "not working", chats: [a] } }, picked.note);
     }
     const working = active().filter((c) => isRunning(c) || runningSubagents(c) > 0).map(activityOf);

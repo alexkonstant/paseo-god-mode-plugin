@@ -813,13 +813,13 @@ test("read_approval: a plan waiting for approval comes whole, a long command too
   assert.deepEqual([short.what, short.text], ["run: npm publish", undefined], "a line that says it all gets nothing more");
 });
 
-test("view commands: a subagent's call from an earlier turn leads to its whole final message, which read_activity no longer lists", async () => {
+test("view commands: a subagent's call from an earlier turn leads to its whole final message, the one read_activity lists it by", async () => {
   const report = longText(29_274, "older");
   const id = "toolu_01HRNUgS8WW6vxHF2nVJKrUd";
   const call = { type: "tool_call", callId: id, name: "Agent", status: "completed", error: null, detail: { type: "sub_agent", subAgentType: "general-purpose", description: "Compare the reminder APIs", log: "", actions: [] } };
   const subagents = [{ id, title: "general-purpose", description: "Compare the reminder APIs", status: "completed", createdAt: at(9), updatedAt: at(8), items: [tool(1), agent(report)] }];
   const chat = fakeChat({ items: [user("compare them"), call, agent("compared"), user("thanks"), agent("ok")], subagents });
-  assert.equal((await readActivityOn(chat, { chat: ID })).data.chats[0].subagents.length, 0, "only the latest turn's subagents are listed");
+  assert.deepEqual((await readActivityOn(chat, { chat: ID })).data.chats[0].subagents.map((s) => s.result_id), [`subagent-${id}`], "a named chat lists the subagents of earlier turns too");
   const [entry] = (await readChatOn(chat, { chat: ID, view: "commands", turn: 2 })).data.turns[0].tool_calls;
   assert.equal(entry.text, `Agent general-purpose: Compare the reminder APIs (its final message: read_message subagent-${id})`);
   assert.equal(entry.result_id, `subagent-${id}`);

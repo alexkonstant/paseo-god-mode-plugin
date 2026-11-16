@@ -358,11 +358,11 @@ const SUBAGENT_OUT = {
     started_at: time,
     updated_at: time,
     elapsed: { type: "string", description: 'How long it has run, or ran, e.g. "4 min".' },
-    current_step: { ...nullableString, description: "Its latest tool call or thought, while running. Only the first six are read in detail: null for the rest." },
-    result: { ...nullableString, description: "Its final message, once finished, cut at 300 characters. Only the first six are read in detail: null for the rest." },
+    current_step: { ...nullableString, description: "Its latest tool call or thought, while running." },
+    result: { ...nullableString, description: "Its final message, once finished, cut at 300 characters. null: none among its latest entries (a canceled one often has none); read_message with result_id looks further back." },
     result_chars: { type: "integer", description: "How many characters its whole final message has." },
     result_truncated: { type: "boolean", description: "true: result is only the start of its final message." },
-    result_id: { type: "string", description: "Once finished: read_message with this id reads its whole final message, read in detail or not." },
+    result_id: { type: "string", description: "Once finished: read_message with this id reads its whole final message." },
     tokens: nullableString,
     model: {
       ...nullableString,
@@ -386,11 +386,13 @@ const ACTIVITY_OUT = {
     turn_elapsed: nullableString,
     current_step: { ...nullableString, description: "The agent's latest tool call or message in this turn." },
     subagents_running: { type: "integer" },
-    subagents_done: { type: "integer" },
+    subagents_done: { type: "integer", description: "Finished ones, of every turn of the chat." },
+    offset: { type: "integer", description: "When a chat is named: how many subagents come before this list." },
+    next_offset: { type: ["integer", "null"], description: "When a chat is named: the offset that lists the next subagents; null: none are left." },
     subagents: {
       type: "array",
       items: SUBAGENT_OUT,
-      description: "Running ones first, then the ones finished in the latest turn. When a chat is named: every one of them. Without a chat: the first six of each chat; subagents_running and subagents_done count them all.",
+      description: "Running ones first, then the finished ones, the most recently finished first. When a chat is named: all of them, finished ones of earlier turns too, 15 per answer (next_offset). Without a chat: the first six of each chat, finished ones only from its latest turn; subagents_running and subagents_done count them all.",
     },
   },
 };
@@ -704,12 +706,13 @@ export const TOOLS = [
   {
     name: "read_activity",
     description:
-      'Use this when the user asks what an agent is doing right now, how far it got, what its subagents are doing, or which model and thinking effort they run on ("what is it doing?", "what are the subagents up to?", "which models are the subagents on?"). One call returns the chat\'s state, current step and how full its context window is, and each subagent\'s task, status, model, effort, current step and running time; finished subagents come with their result. Name the chat to get every one of its subagents. Leave chat empty to cover every chat where an agent or a subagent is working now (the first six subagents of each). A null model or effort is one Paseo has not reported: say so, do not assume the main agent\'s. A finished subagent\'s result is cut at 300 characters (result_truncated): when the user asks what they found or concluded, read_message with its result_id reads its whole final message; not for whether they are done. Not for what was said earlier: use read_chat.',
+      'Use this when the user asks what an agent is doing right now, how far it got, what its subagents are doing, or which model and thinking effort they run on or ran on ("what is it doing?", "what are the subagents up to?", "which models are the subagents on?", "which models did the finished subagents use?"). One call returns the chat\'s state, current step and how full its context window is, and each subagent\'s task, status, model, effort, current step and running time; finished subagents come with their result. Name the chat to get every one of its subagents, the finished ones of earlier turns too, 15 per answer: when next_offset is a number and the question needs the rest, call again with it as offset. Leave chat empty to cover every chat where an agent or a subagent is working now (the first six subagents of each, finished ones only from its latest turn); for the others, name the chat. A null model or effort is one Paseo has not reported: say so, do not assume the main agent\'s. A finished subagent\'s result is cut at 300 characters (result_truncated): when the user asks what they found or concluded, read_message with its result_id reads its whole final message; not for whether they are done. Not for what was said earlier: use read_chat.',
     inputSchema: {
       type: "object",
       properties: {
         chat: { ...CHAT, description: `${CHAT.description} Leave empty for every chat that is working now.` },
-        max_chars: { type: "integer", minimum: 200, maximum: 20000, description: "Budget for the whole answer: default 1500, at most 6000 is used. Whole results: read_message by result_id." },
+        offset: { type: "integer", minimum: 0, description: "With chat: how many of its subagents to skip, to list the next ones. Take it from next_offset." },
+        max_chars: { type: "integer", minimum: 200, maximum: 20000, description: "Budget for the answer's text: default 1500, or 6000 with chat; at most 6000 is used. Whole results: read_message by result_id." },
       },
     },
     outputSchema: object({ summary: { type: "string" }, note: NOTE, chats: { type: "array", items: ACTIVITY_OUT } }),
@@ -1319,7 +1322,9 @@ async function dispatch(name, args, config, ops, log, caller) {
       return ops.readMessage(url, { chat: args.chat, role: checked.role, turn: args.turn, message: args.message, id: args.message_id, mode: checked.mode, size: args.size, offset: args.offset });
     }
     case "read_activity":
-      return ops.readActivity(url, { chat: args.chat || undefined, maxChars: args.max_chars });
+      if (args.offset !== undefined && !(Number.isInteger(args.offset) && args.offset >= 0)) return { invalid: "offset must be a whole number from 0." };
+      if (args.offset > 0 && !args.chat) return { invalid: "offset goes with chat: it reads on through the subagents of one named chat." };
+      return ops.readActivity(url, { chat: args.chat || undefined, maxChars: args.max_chars, ...(args.offset === undefined ? {} : { offset: args.offset }) });
     case "show_images":
       for (const key of ["turn", "image", "count"]) {
         if (args[key] !== undefined && !(Number.isInteger(args[key]) && args[key] >= 1)) return { invalid: `${key} must be a whole number from 1.` };

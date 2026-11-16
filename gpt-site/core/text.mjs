@@ -966,16 +966,30 @@ function runtimeLabel({ model, effort }) {
   return "model and effort not reported";
 }
 
+// The subagents read_activity lists, in the order it lists them: running ones first, then the
+// finished ones, the most recently finished first. Finished ones started before the latest turn
+// only count, unless `allTurns`. Gives one page of that list and where the next page starts.
+export function subagentPage(subagents, { turnStartedAt, allTurns = false, offset = 0, limit = 6 }) {
+  const start = Date.parse(turnStartedAt ?? "") || 0;
+  const listed = [
+    ...subagents.filter((s) => s.status === "running"),
+    ...subagents
+      .filter((s) => s.status !== "running" && (allTurns || Date.parse(s.createdAt) >= start))
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
+  ];
+  const page = listed.slice(offset, offset + limit);
+  const end = offset + page.length;
+  return { page, nextOffset: end < listed.length ? end : null };
+}
+
 // What a chat and its subagents are doing now. `subagents` are Paseo's provider-subagent
 // descriptors, the shown ones carrying `step` (latest tool call or thought) and `result` (final
-// message) read from their timelines. Running ones come first, then those finished in the latest
-// turn; older ones only count.
-export function activityData({ chat, subagents, turnStartedAt, parentStep, now = Date.now(), limit = 6 }) {
+// message) read from their timelines. With `offset` (a chat asked for by name) the answer says where
+// the list goes on.
+export function activityData({ chat, subagents, turnStartedAt, parentStep, now = Date.now(), limit = 6, offset, allTurns = false }) {
   const running = subagents.filter((s) => s.status === "running");
   const start = Date.parse(turnStartedAt ?? "") || 0;
-  const finished = subagents
-    .filter((s) => s.status !== "running" && Date.parse(s.createdAt) >= start)
-    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+  const { page, nextOffset } = subagentPage(subagents, { turnStartedAt, allTurns, offset, limit });
   const parentRunning = ["running", "initializing"].includes(chat.status);
   const waitingOnHelpers = running.length > 0 && (!parentStep || parentStep.startsWith("waiting for a subagent"));
   return {
@@ -986,7 +1000,8 @@ export function activityData({ chat, subagents, turnStartedAt, parentStep, now =
     current_step: parentRunning ? (waitingOnHelpers ? `waiting for ${running.length} subagent(s)` : (parentStep ?? null)) : null,
     subagents_running: running.length,
     subagents_done: subagents.length - running.length,
-    subagents: [...running, ...finished].slice(0, limit).map((s) => ({
+    ...(offset === undefined ? {} : { offset, next_offset: nextOffset }),
+    subagents: page.map((s) => ({
       id: s.id,
       title: s.title || "subagent",
       task: s.description ?? "",
@@ -1018,6 +1033,19 @@ function resultOf(s) {
   };
 }
 
+// Says when the list is not all of the chat's subagents, and how to get the others: a chat asked for
+// by name is read a page at a time, and without a name only the first ones of the latest turn are listed.
+function unlistedLine({ offset, next_offset: next, subagents, subagents_running: running, subagents_done: done }) {
+  const total = running + done;
+  if (offset === undefined) {
+    const more = total - subagents.length;
+    return more > 0 ? `${more} more subagent(s) of this chat are not listed: name the chat to list them all, finished ones included.` : null;
+  }
+  if (offset === 0 && next === null) return null;
+  const range = subagents.length ? `Subagents ${offset + 1}-${offset + subagents.length} of ${total}.` : `No subagents from number ${offset + 1}: the chat has ${total}.`;
+  return next === null ? range : `${range} The next ones: read_activity with offset ${next}.`;
+}
+
 export function activityText(activity) {
   const { chat } = activity;
   const head = activity.working
@@ -1033,7 +1061,7 @@ export function activityText(activity) {
       ? `- ${s.title} (${runtimeLabel(s)}) "${truncate(s.task, 80)}": running for ${s.elapsed}${s.current_step ? `, now ${s.current_step}` : ""}.`
       : `- ${s.title} (${runtimeLabel(s)}) "${truncate(s.task, 80)}": ${s.status} after ${s.elapsed}${s.result ? `. Result: ${truncate(s.result, RESULT_SPOKEN)}` : "."}`,
   );
-  return [head, context, cut, ...lines].filter(Boolean).join("\n");
+  return [head, context, cut, unlistedLine(activity), ...lines].filter(Boolean).join("\n");
 }
 
 // ---- read_message -----------------------------------------------------------------------------

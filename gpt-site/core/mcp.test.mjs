@@ -392,7 +392,10 @@ test("the call rules are repeated where ChatGPT picks the tool", () => {
   assert.match(subagent.model.description, /so it is what really runs, not what the prompt asked for/);
   assert.match(subagent.effort.description, /after any downgrade the model needed/);
   assert.match(byName.read_activity.description, /which model and thinking effort they run on/);
-  assert.match(byName.read_activity.description, /Name the chat to get every one of its subagents/);
+  assert.match(byName.read_activity.description, /Name the chat to get every one of its subagents, the finished ones of earlier turns too, 15 per answer/);
+  assert.match(byName.read_activity.description, /when next_offset is a number and the question needs the rest, call again with it as offset/);
+  assert.equal(byName.read_activity.inputSchema.properties.offset.minimum, 0);
+  assert.deepEqual(byName.read_activity.outputSchema.properties.chats.items.properties.next_offset.type, ["integer", "null"]);
   assert.match(byName.read_activity.description, /A null model or effort is one Paseo has not reported: say so, do not assume the main agent's/);
   assert.match(byName.set_chat_model.description, /needs_clarification means nothing changed: ask the user which model or level, then call again/);
   assert.match(byName.set_chat_model.description, /This is the way for \/model and \/effort, which run_slash_command does not\./);
@@ -455,6 +458,8 @@ test("read_chat, read_activity, list_chats, list_pinned_chats and search_message
   assert.deepEqual(calls.at(-1), { name: "readActivity", url: SECRET, args: { chat: undefined, maxChars: undefined } });
   await handle(call("read_activity", { chat: "fleet", max_chars: 900 }));
   assert.deepEqual(calls.at(-1).args, { chat: "fleet", maxChars: 900 });
+  await handle(call("read_activity", { chat: "fleet", offset: 15 }));
+  assert.deepEqual(calls.at(-1).args, { chat: "fleet", maxChars: undefined, offset: 15 });
   await handle(call("list_chats", { query: "DNSSEC", include_archived: true }));
   assert.deepEqual(calls.at(-1).args, { project: undefined, status: undefined, query: "DNSSEC", includeArchived: true, limit: 10 });
   await handle(call("list_pinned_chats", {}));
@@ -463,6 +468,17 @@ test("read_chat, read_activity, list_chats, list_pinned_chats and search_message
   assert.deepEqual(calls.at(-1).args, { project: "proxy", query: "fleet" });
   await handle(call("search_messages", { query: "dataviz", project: "proxy", scan: 30 }));
   assert.deepEqual(calls.at(-1).args, { query: "dataviz", project: "proxy", chat: undefined, includeArchived: false, scan: 30, limit: 10 });
+});
+
+test("read_activity's offset is a whole number from 0 and goes with a chat; a bad one runs nothing", async () => {
+  const { ops, calls } = fakeOps();
+  const handle = createMcpHandler({ config: configured(), ops });
+  for (const args of [{ chat: "fleet", offset: -1 }, { chat: "fleet", offset: 1.5 }, { chat: "fleet", offset: "15" }, { offset: 15 }]) {
+    assert.equal((await handle(call("read_activity", args))).error.code, -32602, JSON.stringify(args));
+  }
+  assert.equal(calls.length, 0);
+  await handle(call("read_activity", { offset: 0 }));
+  assert.deepEqual(calls.at(-1).args, { chat: undefined, maxChars: undefined, offset: 0 }, "0 is where any list starts");
 });
 
 test("read_message passes its arguments through, and a bad one is a JSON-RPC error before anything runs", async () => {

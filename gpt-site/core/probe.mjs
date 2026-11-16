@@ -6,7 +6,7 @@
 //   node core/probe.mjs pinned [--project P] [--query Q]
 //   node core/probe.mjs read <chat> [--view text|commands|thinking] [--turn 1] [--turns 3] [--max N]
 //   node core/probe.mjs message <chat> [--role user|agent] [--turn 1] [--message N] [--id ID] [--mode head|tail|full] [--size N] [--offset N]
-//   node core/probe.mjs activity [chat] [--max N]
+//   node core/probe.mjs activity [chat] [--max N] [--offset N]
 //   node core/probe.mjs images [chat] [--turn N] [--image N] [--count N] [--save DIR]
 //   node core/probe.mjs search <query…> [--project P] [--chat C] [--archived] [--scan 20] [--limit 10]
 //   node core/probe.mjs models [provider]
@@ -141,7 +141,7 @@ const operations = {
       size: number(values.size, undefined),
       offset: number(values.offset, undefined),
     }),
-  activity: () => readActivity(url, { chat: first, maxChars: number(values.max, undefined) }),
+  activity: () => readActivity(url, { chat: first, maxChars: number(values.max, undefined), offset: number(values.offset, undefined) }),
   images: () =>
     showImages(url, { chat: first, turn: number(values.turn, undefined), image: number(values.image, undefined), count: number(values.count, undefined) }),
   search: () =>
