@@ -301,7 +301,7 @@ test("the call rules are repeated where ChatGPT picks the tool", () => {
   assert.match(byName.read_message.description, /a turn's whole thinking and a tool call's whole output \(read_chat views thinking and commands\) and a subagent's whole final message \(read_activity's result_id\)/);
   assert.match(byName.read_chat.description, /a tool call by its id \(view commands\), a turn's thinking by thinking_id\./);
   assert.match(byName.read_activity.description, /read_message with its result_id reads its whole final message; not for whether they are done/);
-  assert.match(byName.send_message.description, /say so and never send it again \(a reply cut to 1500 characters, reply_truncated, is read whole with read_message turn 1 when the user wants all of it\)/);
+  assert.match(byName.send_message.description, /The agent's answer is not in the result: offer to check it later with read_chat; do not poll\./);
   assert.doesNotMatch(byName.send_message.description, /say so and stop/, "stop read as: no more calls, not even to read the rest of the reply");
   assert.match(byName.search_messages.description, /newest first; pass chat to search a single chat \(next_offset shows its older matches\)/);
   for (const tool of ["read_chat", "read_message", "read_activity", "show_images", "search_messages", "send_message", "read_approval", "answer_approval", "answer_questions", "stop_chat", "archive_chat", "pin_chat", "rename_chat", "set_chat_model", "list_slash_commands", "run_slash_command"]) {
@@ -335,7 +335,7 @@ test("the call rules are repeated where ChatGPT picks the tool", () => {
   assert.match(byName.send_message.inputSchema.properties.if_busy.description, /a plain "send it"/);
   assert.equal(byName.send_message.inputSchema.properties.again, undefined, "no dedupe switch: a new command always sends");
   assert.equal(byName.start_chat.inputSchema.properties.again, undefined);
-  assert.deepEqual(byName.send_message.outputSchema.properties.outcome.enum, ["replied", "waiting_for_approval", "error", "still_working", "not_waiting", "busy", "archived"]);
+  assert.deepEqual(byName.send_message.outputSchema.properties.outcome.enum, ["not_waiting", "busy", "archived"]);
   assert.match(byName.start_chat.description, /tell you to start it now/);
   assert.match(byName.start_chat.description, /One instruction = one chat: never start it twice/);
   assert.match(byName.start_chat.description, /do not poll/);
@@ -821,8 +821,7 @@ test("the shapes the operations produce match the declared output schemas", () =
       "read_message",
       { chat: sampleChat, total_turns: 8, turn: 3, position: 6, role: "call", message_id: "call-4900", started_at: null, mode: "full", total_chars: 900, offset: 0, returned_chars: 900, remaining_chars: 0, truncated: false, next_offset: null, previous_offset: null, text: "$ ls" },
     ],
-    ["send_message", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", outcome: "replied", delivered: true, reply: "Кадр …", reply_chars: 8494, reply_truncated: true }],
-    ["run_slash_command", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", provider: "claude", command: "/review", outcome: "replied", delivered: true, reply: "…", reply_chars: 9000, reply_truncated: true }],
+    ["run_slash_command", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", provider: "claude", command: "/review", outcome: "not_waiting", delivered: true, risk: "low" }],
     [
       "read_approval",
       {
@@ -946,7 +945,6 @@ test("the shapes the operations produce match the declared output schemas", () =
     ],
     ["show_images", { total_images: 0, images: [], skipped: [] }],
     ["show_images", clarification],
-    ["send_message", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", outcome: "replied", reply: "Done: [image 1]", images: 1 }],
     [
       "read_activity",
       {
@@ -982,7 +980,7 @@ test("the shapes the operations produce match the declared output schemas", () =
         ],
       },
     ],
-    ["start_chat", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", outcome: "replied", reply: "pong" }],
+    ["start_chat", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", outcome: "not_waiting", delivered: true }],
     ["send_message", { chat_id: sampleChat.id, short_id: "a22524f", outcome: "busy", delivered: false }],
     ["send_message", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", outcome: "not_waiting", delivered: true }],
     ["answer_approval", { chat_id: sampleChat.id, done: false, what: null }],
@@ -1007,7 +1005,7 @@ test("the shapes the operations produce match the declared output schemas", () =
         ],
       },
     ],
-    ["answer_questions", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", request: "permission-7d1e", answered: [{ n: 1, header: "Release", question: "Continue the release?", answer: "Continue (Recommended)" }], outcome: "replied", delivered: true, reply: "Releasing." }],
+    ["answer_questions", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", request: "permission-7d1e", answered: [{ n: 1, header: "Release", question: "Continue the release?", answer: "Continue (Recommended)" }], outcome: "not_waiting", delivered: true }],
     ["answer_questions", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", request: "permission-7d1e", outcome: "invalid_answers", delivered: false, problems: ["question 2 (Daemon) has no answer yet"], questions: [] }],
     ["answer_questions", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", request: "permission-old", outcome: "gone", delivered: false }],
     ["answer_questions", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", request: "permission-item-5", outcome: "unsupported", delivered: false, reason: "it asks for a secret" }],
@@ -1037,12 +1035,9 @@ test("the shapes the operations produce match the declared output schemas", () =
     ["list_slash_commands", { chat: sampleChat, provider: "opencode", runtime: "opencode", runs_commands: false, reason: "not verified", total: 0, runs_at_once: 0, asks_first: 0, unavailable: 0, shown: 0, commands: [] }],
     ["list_slash_commands", clarification],
     ["run_slash_command", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", provider: "claude", command: "/compact", outcome: "needs_confirmation", delivered: false, risk: "disruptive", confirm_text: "Run /compact …", confirmation: "a.b", expires_at: "2026-10-18T07:02:00.000Z" }],
-    ["run_slash_command", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", provider: "claude", command: "/compact", delivered: true, risk: "disruptive", outcome: "done", context: { before_tokens: 22772, after_tokens: 1755, max_tokens: 1000000, percent_used: 0 } }],
-    ["run_slash_command", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", provider: "claude", command: "/compact", delivered: true, risk: "disruptive", outcome: "refused", reason: "Not enough messages to compact." }],
-    ["run_slash_command", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", provider: "claude", command: "/context", delivered: true, risk: "low", outcome: "replied", reply: "## Context Usage", images: 1 }],
+    ["run_slash_command", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", provider: "claude", command: "/context", delivered: true, risk: "low", outcome: "not_waiting" }],
     ["run_slash_command", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", provider: "claude", command: "/context", outcome: "busy", delivered: false }],
     ["run_slash_command", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", provider: "codex", command: "/review", outcome: "unavailable", delivered: false, reason: "Paseo does not expose it" }],
-    ["run_slash_command", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", provider: "claude", command: "/x", delivered: true, risk: "unknown", outcome: "waiting_for_approval", approval: "run: make clean" }],
     ["run_slash_command", { needs_clarification: { kind: "command", query: "co", candidates: ["code-review", "context"] } }],
     ["archive_chat", clarification],
     ["read_chat", { chat: { ...sampleChat, context: { used_tokens: 59606, max_tokens: 1000000, percent_used: 6, remaining_tokens: 940394 } }, total_turns: 3, turns: [{ turn: 1, position: 3, started_at: null, thinking: "Check the relay first.", omitted_thoughts: 0 }] }],
@@ -1136,8 +1131,8 @@ test("the shapes the operations produce match the declared output schemas", () =
     ["set_chat_model", changeResult({ outcome: "error", chat: pinnedChat, provider: claude, before: was, error: "Paseo refused it: Failed to apply agent config" }).data],
     ["set_chat_model", clarification],
     // start_chat in an existing workspace, and the ways its name can fail to settle.
-    ["start_chat", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", workspace_id: "wks_fleet", new_workspace: false, outcome: "replied", reply: "pong" }],
-    ["start_chat", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", workspace_id: "wks_new", new_workspace: true, outcome: "still_working" }],
+    ["start_chat", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", workspace_id: "wks_fleet", new_workspace: false, outcome: "not_waiting", delivered: true }],
+    ["start_chat", { chat_id: sampleChat.id, short_id: "a22524f", project: "proxy", workspace_id: "wks_new", new_workspace: true, outcome: "not_waiting", delivered: true }],
     ["start_chat", rowsQuestion("fleet", "same_name", rows).data],
     ["start_chat", rowsQuestion("zebra", "no_match", rows).data],
   );

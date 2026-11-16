@@ -705,7 +705,7 @@ export function imageMime(path) {
 
 // Where an image's bytes are. A file becomes { file: { cwd, path } } for the daemon's file read: its
 // directory as the root and its name inside it, or the agent's working directory for a relative
-// path. Inline data is used as it is. Web links stay links: the Site never fetches them.
+// path. Inline data is used as it is. Web links stay links: God Mode never fetches them.
 export function imageTarget(source, cwd) {
   const value = String(source ?? "").trim();
   if (/^data:/i.test(value)) {

@@ -1027,7 +1027,7 @@ async function findImages(client, chat, { turn, deep }) {
   return imagesIn(client, chat, IMAGE_RECENT_TURNS + 1, IMAGE_SCAN_TURNS - IMAGE_RECENT_TURNS);
 }
 
-// One image's bytes from the Mac, read through the relay the way Paseo's own client reads the
+// One image's bytes from the Mac, read from the daemon the way Paseo's own client reads the
 // pictures in a chat. Only sources found in the chat's timeline get here, never a path from the
 // caller. Returns { mime, bytes, data } or { reason }.
 async function readImage(client, image, cwd) {
@@ -1275,7 +1275,7 @@ export async function startChat(target, args = {}) {
 
 // start_chat over an open connection (tests drive it with a fake client). The runtime, model,
 // thinking level and mode are checked against Paseo's catalog first (see Models below); `defaults`
-// are the site's settings for new chats, used where they fit the runtime the chat gets. Without
+// are God Mode's defaults for new chats, used where they fit the runtime the chat gets. Without
 // `workspace` the chat gets a workspace of its own, as Paseo's New chat does; with one it opens in that
 // workspace as another tab, in its folder, and Paseo keeps the workspace's name.
 export async function startChatOn(client, { project, workspace, prompt, provider, model, thinking, mode, defaults = {} } = {}) {
@@ -1837,7 +1837,7 @@ export async function runSlashCommandOn(client, { chat, command, args, ifBusy, c
 // ---- Plugins that describe themselves (meta.describe) ----------------------------------------
 // Every running plugin is asked for its paseo.capabilities/1 description; the ones that answer are
 // what plugin_read and plugin_action offer, and nothing here knows a plugin by name. No cache: the
-// list and the descriptions add about 0.3 s to the relay connection, and a plugin updated a minute
+// list and the descriptions add a fraction of a second to a call, and a plugin updated a minute
 // ago is described as it is now.
 
 const DESCRIBE_TIMEOUT_MS = 4_000;

@@ -405,9 +405,9 @@ export function confirmationText(capabilities, op, args, facts = null) {
   return unsaid.length ? `${withArgs} [target: ${unsaid.map(([field, value]) => `${field}: ${value}`).join("; ")}]` : withArgs;
 }
 // An action that asks first runs only with a token God Mode issued for exactly these arguments a
-// moment ago. HMAC-SHA256 over the plugin, operation, method and canonical arguments, keyed from
-// the pairing link (the Site's one secret), for two minutes. The token proves what was put to the
-// user; that they said yes is ChatGPT's part of the bargain. It is not spent on use: a run is
+// moment ago. HMAC-SHA256 over the plugin, operation, method and canonical arguments, keyed with
+// God Mode's own secret on the Mac, for two minutes. The token proves what was put to the user; that
+// they said yes is the assistant's part of the bargain. It is not spent on use: a run is
 // reported as done, and the rules say a done action is never repeated.
 //
 // When the action has a target, a second MAC covers the facts the user heard. Before running,

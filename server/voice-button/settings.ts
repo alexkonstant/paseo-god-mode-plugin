@@ -1,4 +1,4 @@
-// The voice button's settings, on this Mac only: nothing here reaches the Site.
+// The voice button's settings, on this Mac only: nothing here reaches Claude or ChatGPT.
 import { join } from "node:path";
 import { type VoiceButtonSettings, defaultVoiceButtonSettings, voiceButtonSchema } from "../../shared/voice-button.ts";
 import { dataDir, readJson, writeJson } from "../store.ts";

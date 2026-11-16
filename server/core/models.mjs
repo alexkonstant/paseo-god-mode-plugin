@@ -111,7 +111,7 @@ export function pickMode(provider, query) {
 }
 
 // What a new chat runs on: the runtime, model, thinking level and mode the user asked for, checked
-// against the project's catalog, plus the site's defaults where they fit. Returns { choice } or
+// against the project's catalog, plus God Mode's defaults (bypassPermissions) where they fit. Returns { choice } or
 // { ask }: something Paseo does not offer comes back to the user, and nothing starts. A default
 // that does not fit (a Claude mode for a Codex chat, a model of another runtime) is left out, so the
 // runtime's own default applies. The runtime: the one named, else the model's, else Claude.

@@ -4,7 +4,7 @@
 // the operations and the call log.
 import { PaseoOffline } from "./paseo.mjs";
 import { VERSION } from "./version.mjs";
-import { MESSAGE_KINDS, MESSAGE_MODES, MESSAGE_PAGE, MESSAGE_PIECE, MESSAGE_ROLES, parseMessageRef, REPLY_SHOWN, truncate } from "./text.mjs";
+import { MESSAGE_KINDS, MESSAGE_MODES, MESSAGE_PAGE, MESSAGE_PIECE, MESSAGE_ROLES, parseMessageRef, truncate } from "./text.mjs";
 import { IMAGES_WIDGET_HTML } from "./widget.mjs";
 
 const READ_VIEWS = ["text", "commands", "thinking"];
@@ -215,14 +215,8 @@ const OUTCOME_OUT = {
     chat_id: { type: "string" },
     short_id: { type: "string" },
     project: { type: "string" },
-    outcome: { type: "string", enum: ["replied", "waiting_for_approval", "error", "still_working", "not_waiting", "busy", "archived"] },
+    outcome: { type: "string", enum: ["not_waiting", "busy", "archived"], description: "not_waiting: it arrived; read_chat tells later what the agent answered." },
     delivered: { type: "boolean", description: "true: it reached the agent, never send it again. false: nothing was sent (busy, archived)." },
-    reply: { type: "string" },
-    reply_chars: { type: "integer", description: "How many characters the whole reply has." },
-    reply_truncated: { type: "boolean", description: `true: reply is only its first ${REPLY_SHOWN} characters; read_message with this chat (turn 1) reads it whole.` },
-    images: { type: "integer", description: "Images in the reply; show_images shows them." },
-    approval: { type: "string" },
-    error: { type: "string" },
     same_title: { type: "array", items: CHAT_OUT, description: "archived: the active chats with that archived chat's title, most likely its continuation." },
     needs_clarification: CLARIFY_OUT,
   },
@@ -504,17 +498,6 @@ const SLASH_COMMAND_OUT = {
     available: { type: "boolean", description: "false: God Mode cannot run it in this chat; reason says why and what to use instead." },
     reason: { type: "string" },
     when_busy: { type: "string", enum: ["waits", "alongside"], description: "waits: held while the chat works, unless the user says to interrupt. alongside: runs beside the work." },
-  },
-};
-
-const SLASH_CONTEXT = {
-  type: "object",
-  description: "A compaction: how full the context window was before, and is now when Paseo already knows.",
-  properties: {
-    before_tokens: { type: "integer" },
-    after_tokens: { type: "integer" },
-    max_tokens: { type: "integer" },
-    percent_used: { type: "integer" },
   },
 };
 
@@ -805,7 +788,7 @@ export const TOOLS = [
   {
     name: "send_message",
     description:
-      "Use this to send one message to an existing chat when the user's latest words tell you to send now: \"send it\", \"send it now\", \"tell it now: …\", \"continue\", their answer to the agent's question, or \"yes\" to your own \"Send it?\". One instruction = one call: never split it into several messages, never send it again or a reworded copy. Not commands, so ask \"Send it?\" first: \"write/draft a prompt\" (also \"…and then we'll send it\"), \"ask the agent to …\", \"let's tell it …\", \"you can/could send it\", \"I think it should…\", \"maybe we send it?\", \"ok\" after a draft you did not ask about. Use the chat being discussed unless the user names another. The result is the truth: delivered=true means it arrived — say so and never send it again (a reply cut to 1500 characters, reply_truncated, is read whole with read_message turn 1 when the user wants all of it); busy means NOT delivered: ask whether to add it to the current work or interrupt, then call again with if_busy; archived means NOT delivered: that chat was archived and an active one has its title (same_title), so ask which one the user means; an error is not confirmed, never say it was sent. If the agent is still working, offer to check later; do not poll.",
+      "Use this to send one message to an existing chat when the user's latest words tell you to send now: \"send it\", \"send it now\", \"tell it now: …\", \"continue\", their answer to the agent's question, or \"yes\" to your own \"Send it?\". One instruction = one call: never split it into several messages, never send it again or a reworded copy. Not commands, so ask \"Send it?\" first: \"write/draft a prompt\" (also \"…and then we'll send it\"), \"ask the agent to …\", \"let's tell it …\", \"you can/could send it\", \"I think it should…\", \"maybe we send it?\", \"ok\" after a draft you did not ask about. Use the chat being discussed unless the user names another. The result is the truth: delivered=true means it arrived — say so and never send it again; busy means NOT delivered: ask whether to add it to the current work or interrupt, then call again with if_busy; archived means NOT delivered: that chat was archived and an active one has its title (same_title), so ask which one the user means; an error is not confirmed, never say it was sent. The agent's answer is not in the result: offer to check it later with read_chat; do not poll.",
     inputSchema: {
       type: "object",
       properties: {
@@ -890,8 +873,8 @@ export const TOOLS = [
       request: { type: "string" },
       outcome: {
         type: "string",
-        enum: ["replied", "waiting_for_approval", "error", "still_working", "not_waiting", "invalid_answers", "gone", "not_questions", "unsupported"],
-        description: "replied, waiting_for_approval, error, still_working, not_waiting: the answers arrived and this is what the agent did next. invalid_answers: problems says what is missing or wrong; gone: the chat no longer waits on that request; not_questions: use answer_approval; unsupported: the user answers it in Paseo (reason). Those four sent nothing.",
+        enum: ["not_waiting", "invalid_answers", "gone", "not_questions", "unsupported"],
+        description: "not_waiting: the answers arrived; read_chat tells later what the agent did next. invalid_answers: problems says what is missing or wrong; gone: the chat no longer waits on that request; not_questions: use answer_approval; unsupported: the user answers it in Paseo (reason). Those four sent nothing.",
       },
       delivered: { type: "boolean", description: "true: the agent got the answers, never send them again. false: nothing was sent." },
       answered: {
@@ -902,12 +885,6 @@ export const TOOLS = [
       problems: { type: "array", items: { type: "string" } },
       questions: { type: "array", items: QUESTION_OUT, description: "invalid_answers: the questions again, to ask the user." },
       reason: { type: "string" },
-      reply: { type: "string" },
-      reply_chars: { type: "integer", description: "How many characters the whole reply has." },
-      reply_truncated: { type: "boolean", description: `true: reply is only its first ${REPLY_SHOWN} characters; read_message with this chat (turn 1) reads it whole.` },
-      images: { type: "integer", description: "Images in the reply; show_images shows them." },
-      approval: { type: "string" },
-      error: { type: "string" },
     }),
     annotations: write,
   },
@@ -1077,7 +1054,7 @@ export const TOOLS = [
   {
     name: "run_slash_command",
     description:
-      'Use this only when the user\'s latest words tell you to run a slash command in a chat now ("compact it", "run /review", "сожми контекст"). Pass the command\'s name in English as the chat lists it ("compact"), without first listing: a name that is unclear comes back with candidates, and nothing is sent. args only when the user gave them. God Mode sends only commands the chat\'s agent runs as commands. needs_confirmation: say confirm_text and, only after the user\'s yes, call again with the same chat, command and args plus confirmation. busy: the chat is working and nothing was sent; ask whether to interrupt it, and only on their explicit yes call again with if_busy interrupt. unavailable: say the reason and what to use instead. delivered=true means it reached the agent: never run it again for that request. If it is still running, offer to check later with read_chat; do not poll.',
+      'Use this only when the user\'s latest words tell you to run a slash command in a chat now ("compact it", "run /review", "сожми контекст"). Pass the command\'s name in English as the chat lists it ("compact"), without first listing: a name that is unclear comes back with candidates, and nothing is sent. args only when the user gave them. God Mode sends only commands the chat\'s agent runs as commands. needs_confirmation: say confirm_text and, only after the user\'s yes, call again with the same chat, command and args plus confirmation. busy: the chat is working and nothing was sent; ask whether to interrupt it, and only on their explicit yes call again with if_busy interrupt. unavailable: say the reason and what to use instead. delivered=true means it reached the agent: never run it again for that request. What it did, read_chat tells later; do not poll.',
     inputSchema: {
       type: "object",
       properties: {
@@ -1097,15 +1074,10 @@ export const TOOLS = [
       command: { type: "string", description: "Exactly what was sent, or would be." },
       outcome: {
         type: "string",
-        enum: ["done", "replied", "refused", "still_working", "not_waiting", "waiting_for_approval", "error", "busy", "unavailable", "needs_confirmation"],
-        description: "done: it did what it does (a compaction); replied: its output is in reply; refused: the agent got it and declined, nothing changed; busy, unavailable, needs_confirmation: nothing was sent.",
+        enum: ["not_waiting", "busy", "unavailable", "needs_confirmation"],
+        description: "not_waiting: it reached the agent; read_chat tells later what it did. busy, unavailable, needs_confirmation: nothing was sent.",
       },
       delivered: { type: "boolean", description: "true: it reached the agent, never run it again for this request. false: nothing was sent." },
-      reply: { type: "string", description: "What the command produced in this chat." },
-      reply_chars: { type: "integer", description: "How many characters the whole reply has." },
-      reply_truncated: { type: "boolean", description: `true: reply is only its first ${REPLY_SHOWN} characters; read_message with this chat (turn 1) reads it whole.` },
-      images: { type: "integer", description: "Images in the reply; show_images shows them." },
-      context: SLASH_CONTEXT,
       reason: { type: "string" },
       risk: SLASH_RISK,
       confirm_text: { type: "string", description: "What to tell the user before they say yes." },
@@ -1398,7 +1370,7 @@ export function serverVersion(instructions) {
 // notifications that need no body.
 export function createMcpHandler({ config, ops, log, caller }) {
   const instructions = buildInstructions(config);
-  // The name the Site's plugin was first registered with; the version is what must move.
+  // The name God Mode was first registered with; the version is what must move.
   const serverInfo = { name: "paseo-remote", version: serverVersion(instructions) };
 
   async function callTool(name, args) {
