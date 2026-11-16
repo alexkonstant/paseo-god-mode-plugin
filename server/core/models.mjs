@@ -2,7 +2,7 @@
 // Codex…) with its models, each model's thinking levels, and the provider's permission modes, the
 // same lists Paseo's own New chat offers. And the matching of what the user said against them.
 // Pure, so it is unit-tested in core/models.test.mjs; paseo.mjs fetches the catalog.
-import { normalize, resolve, truncate } from "./text.mjs";
+import { chatName, normalize, resolve, truncate } from "./text.mjs";
 
 // The runtime a new chat gets when nothing names one, as before the catalog existed.
 const DEFAULT_PROVIDER = "claude";
@@ -276,7 +276,7 @@ function appliesLater(providerId, { model, thinking }) {
 // reports them; after is read back from Paseo, never the request echoed. change is what chooseChange
 // settled on, busy whether the chat was working, notice Paseo's own note on the change.
 export function changeResult({ outcome, chat, provider = null, before, after = before, change = null, busy = false, notice = null, error = null, other = null }) {
-  const named = `${truncate(chat.title, 70)} (${chat.project})`;
+  const named = `${chatName(chat)} (${chat.project}) [id ${chat.id}]`;
   const runtime = provider?.label ?? chat.provider ?? "this runtime";
   const runs = runsOn(provider, after);
   const kept = "Its history is kept and no new chat was started.";

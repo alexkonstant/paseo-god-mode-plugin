@@ -91,8 +91,17 @@ test("a workspace id opens the chat in that workspace's own folder, and the answ
   const { text, data } = await startChatOn(paseo, { workspace: "wks_relay", prompt: "Reply OK." });
   assert.deepEqual(created(paseo), [{ provider: "claude", cwd: "/Users/r/proxy-worktrees/fix-relay", workspaceId: "wks_relay", initialPrompt: "Reply OK.", labels: { source: "god-mode" } }]);
   assert.deepEqual(paseo.calls.find((c) => c[0] === "snapshot")[1], { cwd: "/Users/r/proxy-worktrees/fix-relay" }, "the catalog of that folder");
-  assert.match(text, /^Started a new chat in proxy, in its workspace "Fix relay" \(Claude, [^)]*\); the task arrived\. Do not start it again\./);
+  assert.match(text, /^Started a new chat \[id [0-9a-f-]+\] in proxy, in its workspace "Fix relay" \(Claude, [^)]*\); the task arrived\. Do not start it again\./);
   assert.deepEqual([data.project, data.workspace_id, data.new_workspace, data.outcome], ["proxy", "wks_relay", false, "not_waiting"]);
+});
+
+test("the id of a chat in a workspace, whole or its start, opens the new chat beside it", async () => {
+  for (const ref of ["5d6e7f80-0000-4000-8000-000000000003", "5d6e7f80-0000-4000-8000-00000000000", "#5d6e7f80-0000-4000-8000-000000000003"]) {
+    const paseo = daemon();
+    const { data } = await startChatOn(paseo, { workspace: ref, prompt: "Reply OK." });
+    assert.equal(created(paseo)[0]?.workspaceId, "wks_relay", ref);
+    assert.equal(data.new_workspace, false, ref);
+  }
 });
 
 test("a name settles on the row it names: its title, or the title of a chat in it, with or without the project", async () => {
@@ -131,7 +140,7 @@ test("two rows with the same name, a partial name and no match start nothing and
   assert.deepEqual([same.data.needs_clarification.kind, same.data.needs_clarification.reason], ["workspace", "same_name"]);
   assert.deepEqual(same.data.needs_clarification.candidates.map((c) => c.workspace_id), ["wks_twin_b", "wks_twin_a"], "the one with the newest chat first");
   assert.match(same.text, /^2 workspaces are named "Deploy scripts", so no chat was started\.\nAsk the user which one, naming what tells them apart\./);
-  assert.match(same.text, /Deploy scripts \(lab\): 1 chats?|Deploy scripts \(lab\): idle/);
+  assert.match(same.text, /Deploy scripts \(lab\) \[workspace wks_twin_[ab]\]: finished/);
   const partial = await startChatOn(daemon(), { workspace: "fleet zebra", prompt: "go" });
   assert.equal(partial.data.needs_clarification.reason, "partial", "a word that fits no row is no reason to pick the nearest");
   const none = await startChatOn(daemon(), { workspace: "прокси", prompt: "go" });
@@ -145,7 +154,7 @@ test("without a workspace the chat gets one of its own, as before, and the answe
   const paseo = daemon();
   const { text, data } = await startChatOn(paseo, { project: "lab", prompt: "Reply OK." });
   assert.deepEqual(created(paseo), [{ provider: "claude", cwd: "/Users/r/lab", initialPrompt: "Reply OK.", labels: { source: "god-mode" } }], "no workspaceId in the request");
-  assert.match(text, /^Started a new chat in lab \(/);
+  assert.match(text, /^Started a new chat \[id [0-9a-f-]+\] in lab \(/);
   assert.deepEqual([data.workspace_id, data.new_workspace], ["wks_made_now", true], "its workspace, to open another chat beside it");
   const beside = await startChatOn(paseo, { workspace: data.workspace_id, prompt: "Another." });
   assert.deepEqual([beside.data.new_workspace, beside.data.workspace_id], [false, "wks_made_now"], "another chat beside the one just started");
@@ -178,5 +187,5 @@ test("settleRow and rowsQuestion: whole names and every word, never a partial ma
   const question = rowsQuestion("deploy", "same_name", rows.slice(2));
   assert.equal(question.data.needs_clarification.candidates.length, 2);
   assert.equal(question.data.needs_clarification.candidates[0].workspace_id, "c");
-  assert.match(question.text, /- Deploy \(lab\): no active chat/);
+  assert.match(question.text, /- Deploy \(lab\) \[workspace [^\]]+\]: no active chat/);
 });

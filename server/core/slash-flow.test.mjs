@@ -114,7 +114,7 @@ test("list: the chat's own commands, each with what it does and whether God Mode
   assert.deepEqual([listed.data.total, listed.data.runs_at_once, listed.data.asks_first, listed.data.unavailable, listed.data.shown], [5, 2, 2, 1, 5]);
   assert.deepEqual(listed.data.commands.map((c) => c.name), ["code-review", "context", "compact", "gm-ping", "clear"]);
   assert.equal(listed.data.commands[4].available, false);
-  assert.match(listed.text, /^Fleet map \(proxy\): idle, .*\nClaude Code: 5 command\(s\)\./);
+  assert.match(listed.text, /^Fleet map \(proxy\): finished, .* \[id [0-9a-f-]+\]\nClaude Code: 5 command\(s\)\./);
   assert.match(listed.text, /Permissions are bypassed in this chat/);
   const one = await listSlashCommandsOn(client, { chat: ID, query: "compact" });
   assert.equal(one.data.shown, 1);
@@ -144,7 +144,8 @@ test("Claude /compact: asks first, then runs as a message Claude Code expands, a
   assert.equal(asked.data.risk, "disruptive");
   assert.equal(asked.data.command, "/compact keep the API notes");
   assert.match(asked.data.confirm_text, /^Run \/compact keep the API notes in «Fleet map» \(Claude Code\): Summarises the conversation so far/);
-  assert.match(asked.text, /Tell the user: ".*" Only after they say yes, call run_slash_command again with the same chat, command and args plus this confirmation\./);
+  assert.match(asked.text, /Tell the user: ".*" Only after they say yes, call run_slash_command again with the same chat, command and args plus this confirmation \[confirmation [^\]]+\]\./);
+  assert.ok(asked.text.includes(`[confirmation ${asked.data.confirmation}]`), "Claude reads only the text: the token is there whole");
   assert.equal(client.state.sent.length, 0, "nothing is sent before the yes");
   const done = await run(client, { command: "compact", args: "keep the API notes", confirmation: asked.data.confirmation });
   assert.equal(client.state.sent.length, 1);
@@ -153,7 +154,7 @@ test("Claude /compact: asks first, then runs as a message Claude Code expands, a
   assert.match(client.state.sent[0].options.messageId, /^[0-9a-f-]{36}$/);
   assert.equal(done.data.outcome, "not_waiting");
   assert.equal(done.data.delivered, true);
-  assert.match(done.text, /^Sent \/compact keep the API notes to Fleet map; it arrived\. It ran once; never run it again for this request\. Not waiting for the result; offer to check later with read_chat\.$/);
+  assert.match(done.text, /^Sent \/compact keep the API notes to Fleet map \[id [0-9a-f-]+\]; it arrived\. It ran once; never run it again for this request\. Not waiting for the result; offer to check later with read_chat\.$/);
 });
 
 test("a confirmation fits one chat, command, arguments and moment only", async () => {
@@ -175,10 +176,10 @@ test("a low-risk command is sent at once; an unclear or unknown name sends nothi
   assert.equal(context.data.outcome, "not_waiting");
   assert.equal(context.data.risk, "low");
   assert.equal(context.data.delivered, true);
-  assert.match(context.text, /^Sent \/context to Fleet map; it arrived\. It ran once; never run it again for this request\. Not waiting for the result; offer to check later with read_chat\.$/);
+  assert.match(context.text, /^Sent \/context to Fleet map \[id [0-9a-f-]+\]; it arrived\. It ran once; never run it again for this request\. Not waiting for the result; offer to check later with read_chat\.$/);
   const unknown = await run(client, { command: "definitely-not-a-command" });
   assert.equal(unknown.data.needs_clarification.kind, "command");
-  assert.match(unknown.text, /No command of Fleet map matches "definitely-not-a-command", so nothing was sent\. Its commands: code-review, context, compact, gm-ping\./);
+  assert.match(unknown.text, /No command of Fleet map \[id [0-9a-f-]+\] matches "definitely-not-a-command", so nothing was sent\. Its commands: code-review, context, compact, gm-ping\./);
   const unclear = await run(client, { command: "co" });
   assert.ok(unclear.data.needs_clarification.candidates.length > 1);
   assert.equal(client.state.sent.length, 1, "only /context was sent");

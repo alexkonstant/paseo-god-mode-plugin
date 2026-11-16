@@ -111,8 +111,9 @@ test("rename_workspace: the Pinned section shows the new name, the pin and the c
   assert.equal(data.pinned, true, "read back after the change");
   assert.equal(data.pinned_at, PIN_TIME, "the pin is the same pin, not a new one");
   assert.deepEqual(data.chats.map((c) => [c.id, c.title]), [[FLEET_D, "Fleet map, stage D"], [FLEET_E, "Fleet map tests"]]);
-  assert.match(text, /^Renamed the workspace "Fleet map" to "Proxy fleet" \(proxy\)\. Paseo's sidebar shows the new name now\. It stays pinned, and the Pinned section shows the new name\. Its 2 chats keep their own names\.$/);
-  assert.doesNotMatch(text, /wks_|a2252400/, "no ids to read aloud");
+  assert.match(text, /^Renamed the workspace "Fleet map" to "Proxy fleet" \(proxy\) \[workspace [^\]]+\]\. Paseo's sidebar shows the new name now\. It stays pinned, and the Pinned section shows the new name\. Its 2 chats keep their own names\.$/);
+  assert.match(text, /\[workspace wks_[a-z0-9_]+\]/, "the row's id, for the next call");
+  assert.doesNotMatch(text, /a2252400/, "its chats are not named here");
   const after = await listPinnedChatsOn(paseo, {});
   const [was, now] = [LIST_AFTER(before)[0], LIST_AFTER(after)[0]];
   assert.deepEqual(now, { ...was, name: "Proxy fleet" }, "list_pinned_chats: only the label moved");
@@ -178,7 +179,7 @@ test("rename_workspace to the name it already shows changes nothing and sends no
   assert.equal(data.done, false);
   assert.equal(data.new_name, "Fleet map");
   assert.equal(data.pinned_at, PIN_TIME);
-  assert.match(text, /already named "Fleet map" \(proxy\); nothing changed/);
+  assert.match(text, /already named "Fleet map" \(proxy\) \[workspace [^\]]+\]; nothing changed/);
 });
 
 test("rename_workspace reports a refusal with the name Paseo still shows, never a new name", async () => {
@@ -226,7 +227,7 @@ test("rename_chat renames a chat by id, confirms it from Paseo, and points at th
   assert.equal(data.done, true);
   assert.equal(data.old_name, "Fleet map, stage D");
   assert.equal(data.new_name, "Fleet map, stage E");
-  assert.equal(text, 'Renamed the chat "Fleet map, stage D" to "Fleet map, stage E" (proxy). Paseo shows the new name now. Its row in the sidebar keeps the name "Fleet map": that is the workspace\'s name, and rename_workspace changes it.');
+  assert.equal(text, 'Renamed the chat "Fleet map, stage D" to "Fleet map, stage E" (proxy) [id a2252400-0000-4000-8000-000000000001]. Paseo shows the new name now. Its row in the sidebar keeps the name "Fleet map": that is the workspace\'s name, and rename_workspace changes it.');
   assert.equal((await paseo.fetchAgent(FLEET_D)).agent.title, "Fleet map, stage E", "Paseo itself holds the new name");
   const { data: pinned } = await listPinnedChatsOn(paseo, {});
   assert.equal(pinned.pinned[0].name, "Fleet map", "the row's label is the workspace's");
@@ -259,7 +260,7 @@ test("an archived chat is left alone, and a name never reaches it", async () => 
   assert.equal(data.done, false);
   assert.equal(data.old_name, "Retired gadget");
   assert.equal(data.new_name, undefined);
-  assert.match(text, /^Nothing changed: "Retired gadget" \(lab\) is archived\./);
+  assert.match(text, /^Nothing changed: "Retired gadget" \(lab\) \[id [0-9a-f-]+\] is archived\./);
   const byName = daemon();
   assert.equal((await renameChatOn(byName, { chat: "Retired gadget", name: "New name" })).data.needs_clarification.reason, "no_match");
   assert.deepEqual(byName.calls, []);
@@ -272,7 +273,7 @@ test("rename_chat to the name it has changes nothing", async () => {
   assert.equal(data.outcome, "unchanged");
   assert.equal(data.done, false);
   assert.equal(data.new_name, "Open work");
-  assert.match(text, /already named "Open work" \(lab\); nothing changed/);
+  assert.match(text, /already named "Open work" \(lab\) \[id [0-9a-f-]+\]; nothing changed/);
 });
 
 test("rename_chat takes only what Paseo shows afterwards as the outcome, also where it accepted the name and dropped it", async () => {

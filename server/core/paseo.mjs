@@ -15,6 +15,7 @@ import {
   charCount,
   chatData,
   chatLine,
+  chatName,
   chatQuestion,
   chatRenameResult,
   chatState,
@@ -39,6 +40,7 @@ import {
   messageRef,
   messageText,
   messageWindow,
+  namedChat,
   normalize,
   parseMessageRef,
   pinnedResult,
@@ -206,7 +208,16 @@ async function fetchChats(client) {
     sort: [{ key: "updated_at", direction: "desc" }],
     page: { limit: CHAT_PAGE },
   });
-  return entries.map(toChat);
+  return markAlone(entries.map(toChat));
+}
+
+// Marks each chat that is alone in its sidebar row, counted among the active chats: Paseo's sidebar
+// calls such a chat by its row's title (chatName). An archived chat has no row.
+function markAlone(chats, active = chats) {
+  const perRow = new Map();
+  for (const c of active) if (c.workspaceId) perRow.set(c.workspaceId, (perRow.get(c.workspaceId) ?? 0) + 1);
+  for (const c of chats) c.alone = !c.archived && perRow.get(c.workspaceId) === 1;
+  return chats;
 }
 
 // Paseo's own search over title, workspace, branch and project. History
@@ -361,7 +372,7 @@ export async function listChats(target, { project, status = "all", query, includ
     }
     let chats =
       query || includeArchived
-        ? await fetchChatHistory(client, { query, includeArchived, limit: CHAT_PAGE })
+        ? markAlone(await fetchChatHistory(client, { query, includeArchived, limit: CHAT_PAGE }), await fetchChats(client))
         : await fetchChats(client);
     // Paseo matches words as typed; spoken inflections ("флоту") fall back to
     // our own word matching over active chats.
@@ -386,7 +397,7 @@ export async function listChats(target, { project, status = "all", query, includ
     }
     const more = chats.length > limit ? `\n… ${chats.length - limit} more; narrow it with project, status or query.` : "";
     // Steers the next call to an id it already has instead of another lookup.
-    const hint = "\nThe data carries each chat's id: pass it to the next tool; no need to list again.";
+    const hint = "\nPass a chat's [id …] to the next tool; no need to list again.";
     return { text: `${chats.length} chat(s) in ${scope}:\n${shown.map((c) => chatLine(c, now)).join("\n")}${more}${hint}`, data };
   });
 }
@@ -433,13 +444,21 @@ async function fetchRows(client) {
   return workspaces.map((w) => toRow(w, chats));
 }
 
-// The row a tool is asked to act on: a workspace_id from earlier results, or a name, settled strictly
-// like every write. Returns { row } or { ask }.
+// The row a tool is asked to act on: its workspace id or the id of a chat in it from earlier results,
+// or a name, settled strictly like every write. Returns { row } or { ask }.
 function pickRow(rows, query, { tool } = {}) {
   const raw = String(query).trim();
-  const byId = rows.find((r) => r.id === raw);
+  const byId = rows.find((r) => r.id === raw) ?? rowOfChat(rows, raw);
   const settled = byId ? { row: byId } : settleRow(rows, raw);
   return settled.row ? settled : { ask: rowsQuestion(raw, settled.ask, settled.rows, { tool }) };
+}
+
+// The row holding the chat an id names: its whole id, or a start of it no other active chat has.
+function rowOfChat(rows, raw) {
+  const id = raw.replace(/^#/, "").toLowerCase();
+  if (!ID_PREFIX.test(id)) return null;
+  const chats = rows.flatMap((r) => r.chats.filter((c) => c.id.startsWith(id)).map((c) => ({ row: r, c })));
+  return chats.length === 1 ? chats[0].row : null;
 }
 
 // The workspace start_chat is asked to open a chat in, among the rows of Paseo's sidebar (within a
@@ -822,7 +841,7 @@ async function searchChat(client, chat, query, perChat, offset = 0) {
 }
 
 function matchLine(chat, m) {
-  return `${truncate(chat.title, 50)} (${chat.project}), turn ${m.turn} (${m.role}): ${m.snippet}`;
+  return `${chatName(chat)} (${chat.project}), turn ${m.turn} (${m.role}): ${m.snippet} [id ${chat.id}${m.message_id ? `, message_id ${m.message_id}` : ""}]`;
 }
 
 // A read that took the one active chat among several matches says so before its answer.
@@ -1081,7 +1100,7 @@ export async function showImagesOn(client, { chat, turn, image, count } = {}) {
   let chosen = wanted ? found.images.filter((i) => i.n === wanted) : found.images.slice(0, limit);
   if (wanted && chosen.length === 0 && found.images.length > 0) {
     return {
-      text: `Turn ${from} of ${truncate(target.title, 70)} (${target.project}) has ${found.images.length} image(s), so there is no image ${wanted}.`,
+      text: `Turn ${from} of ${chatName(target)} (${target.project}) [id ${target.id}] has ${found.images.length} image(s), so there is no image ${wanted}.`,
       data: { chat: chatData(target), ...(note ? { note } : {}), total_images: found.images.length, images: [], skipped: [] },
     };
   }
@@ -1214,7 +1233,7 @@ export async function searchMessagesOn(client, { query, project, chat, includeAr
     note = picked.note;
   } else {
     candidates = includeArchived
-      ? await fetchChatHistory(client, { includeArchived: true, limit: CHAT_PAGE })
+      ? markAlone(await fetchChatHistory(client, { includeArchived: true, limit: CHAT_PAGE }), await fetchChats(client))
       : await fetchChats(client);
     if (project) {
       const picked = pickProject(await fetchProjects(client), project);
@@ -1307,7 +1326,7 @@ export async function startChatOn(client, { project, workspace, prompt, provider
   const where = place.workspaceId ? `${place.name}, in its workspace "${truncate(place.workspace, 70)}"` : place.name;
   const workspaceId = agent.workspaceId ?? place.workspaceId;
   return {
-    text: `Started a new chat in ${where} (${runtime.text}); the task arrived. Do not start it again.\n${outcome.text}`,
+    text: `Started a new chat [id ${agent.id}] in ${where} (${runtime.text}); the task arrived. Do not start it again.\n${outcome.text}`,
     data: {
       chat_id: agent.id,
       short_id: agent.id.slice(0, 7),
@@ -1330,7 +1349,7 @@ export async function sendMessageOn(client, { chat, text, ifBusy, ifArchived } =
   const picked = await pickChat(client, chat, chats);
   if (picked.ask) return picked.ask;
   const target = picked.chat;
-  const title = truncate(target.title, 70);
+  const title = namedChat(target);
   const ids = { chat_id: target.id, short_id: target.id.slice(0, 7), project: target.project };
   // Only an id reaches an archived chat, and a message brings it back. An active chat with its
   // title is most likely its continuation, and the id one kept from before the move.
@@ -1405,7 +1424,7 @@ export async function answerApprovalOn(client, { chat, decision, request } = {})
   };
   await client.respondToPermissionAndWait(target.id, permission.id, response, 10_000);
   return {
-    text: `${behavior === "allow" ? "Allowed" : "Denied"}: ${what} in ${truncate(target.title, 70)}.`,
+    text: `${behavior === "allow" ? "Allowed" : "Denied"}: ${what} in ${namedChat(target)}.`,
     data: { chat_id: target.id, done: true, kind: permission.kind, decision: behavior, what },
   };
 }
@@ -1456,7 +1475,7 @@ export async function stopChatOn(client, { chat } = {}) {
   }
   await client.cancelAgent(target.id);
   return {
-    text: `Stopped ${truncate(target.title, 70)}. State before: ${chatState(target)}.`,
+    text: `Stopped ${namedChat(target)}. State before: ${chatState(target)}.`,
     data: { chat_id: target.id, done: true },
   };
 }
@@ -1481,13 +1500,13 @@ export async function archiveChatOn(client, { chat } = {}) {
   if (isRunning(target) || helpers > 0) {
     const what = isRunning(target) ? "its agent is working" : `${helpers} subagent(s) are working`;
     return {
-      text: `Not archived: ${truncate(target.title, 70)} is busy, ${what}, and archiving would interrupt it. Tell the user; it can be archived once it is done, or after stop_chat if they want it stopped.`,
+      text: `Not archived: ${namedChat(target)} is busy, ${what}, and archiving would interrupt it. Tell the user; it can be archived once it is done, or after stop_chat if they want it stopped.`,
       data: { ...ids, outcome: "busy", done: false },
     };
   }
   const { archivedAt } = await client.archiveAgent(target.id);
   return {
-    text: `Archived ${truncate(target.title, 70)}. Its history is kept; a new message to it brings it back.`,
+    text: `Archived ${namedChat(target)}. Its history is kept; a new message to it brings it back.`,
     data: { ...ids, outcome: "archived", done: true, archived_at: toIso(archivedAt) },
   };
 }
@@ -1517,7 +1536,8 @@ export async function pinChatOn(client, { chat, workspaceId, action } = {}) {
       target = picked.chat;
       if (target.archived) return pinResult({ action, outcome: "archived", chat: target });
       row = rows.find((r) => r.id === target.workspaceId);
-      if (!row) return pinResult({ action, outcome: "no_row", chat: target });
+      // With no row in the sidebar, the chat goes by its own title, not its workspace's.
+      if (!row) return pinResult({ action, outcome: "no_row", chat: { ...target, alone: false } });
     }
   }
   const pin = action === "pin";
@@ -1768,7 +1788,7 @@ function commandQuestion(target, catalog, query, candidates) {
   return clarification(
     "command",
     query,
-    `No command of ${truncate(target.title, 70)} matches "${query}", so nothing was sent. ${runnable.length ? `Its commands: ${runnable.join(", ")}.` : "It offers none God Mode can run."} Ask the user which one they mean.`,
+    `No command of ${namedChat(target)} matches "${query}", so nothing was sent. ${runnable.length ? `Its commands: ${runnable.join(", ")}.` : "It offers none God Mode can run."} Ask the user which one they mean.`,
     [],
   );
 }
@@ -1780,7 +1800,7 @@ export async function runSlashCommandOn(client, { chat, command, args, ifBusy, c
   const picked = await pickChat(client, chat);
   if (picked.ask) return picked.ask;
   const target = picked.chat;
-  const title = truncate(target.title, 70);
+  const title = namedChat(target);
   const ids = { chat_id: target.id, short_id: target.id.slice(0, 7), project: target.project, provider: target.provider ?? "unknown" };
   const notRun = (reason, extra = {}) => ({ text: `Not run: ${reason} Nothing was sent.`, data: { ...ids, ...extra, outcome: "unavailable", delivered: false, reason } });
   if (target.archived) return notRun(`${title} is archived; a new message to it brings it back first.`);
@@ -1821,7 +1841,7 @@ export async function runSlashCommandOn(client, { chat, command, args, ifBusy, c
       const say = confirmText(entry, { chatTitle: target.title, label: adapter.label, args: prepared.args, notes: risk.notes, interrupting, mode: target.mode });
       const why = { expired: "That confirmation expired. ", mismatch: "That confirmation was for something else. " }[verdict] ?? "";
       return {
-        text: `${why}Not run yet: ${text} asks first. Tell the user: "${say}" Only after they say yes, call run_slash_command again with the same chat, command and args plus this confirmation.`,
+        text: `${why}Not run yet: ${text} asks first. Tell the user: "${say}" Only after they say yes, call run_slash_command again with the same chat, command and args plus this confirmation [confirmation ${token}].`,
         data: { ...base, outcome: "needs_confirmation", delivered: false, risk: risk.risk, confirm_text: say, confirmation: token, expires_at: expiresAt },
       };
     }
@@ -2049,7 +2069,7 @@ export async function pluginActionOn(client, { plugin, operation, args, confirma
         changed: "The target changed since the user confirmed; tell them what it is now. ",
       }[verdict];
       return {
-        text: `${why}Not done: this action asks first. Tell the user: "${say}" Only after they say yes, call plugin_action again with the same plugin, operation and args plus this confirmation.`,
+        text: `${why}Not done: this action asks first. Tell the user: "${say}" Only after they say yes, call plugin_action again with the same plugin, operation and args plus this confirmation [confirmation ${token}].`,
         data: {
           ...base,
           outcome: "needs_confirmation",

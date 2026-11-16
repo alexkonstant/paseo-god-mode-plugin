@@ -13,7 +13,7 @@ Kind is taken from the tool's annotations. `*` marks a required argument.
 
 | Tool | Kind | Arguments | What it is for |
 | --- | --- | --- | --- |
-| `overview` | read | `hours` | What is going on: chats waiting for an approval, running chats with their running subagents, chats with a new reply, and the projects. |
+| `overview` | read | `hours` | What is going on: chats waiting for an approval, running chats with their running subagents, chats finished with an unread reply, and the projects. |
 | `list_chats` | read | `project`, `status` (running, waiting, new, all), `query`, `include_archived`, `limit` | Find chats by title, project or state that are not in the conversation yet. |
 | `list_pinned_chats` | read | `project`, `query` | The chats in the Pinned section at the top of Paseo's sidebar, across every project, latest pin first; also the way to a chat the user picks by its pin. |
 | `read_chat` | read | `chat`*, `view` (text, commands, thinking), `turn`, `turns`, `max_chars`, `offset` (commands) | What a chat said (the latest turn, or the last N at once), the commands it ran, or the agent's reasoning. A digest: it says what it cut and points to `read_message`; view commands pages a turn's earlier calls by `offset`. |
@@ -163,14 +163,24 @@ Kind is taken from the tool's annotations. `*` marks a required argument.
   `error` say what it still runs on. Only Claude and Codex chats: other runtimes answer `unavailable`.
   `/model` and `/effort` stay out of `run_slash_command`; their reason names this tool.
 - **Another tab in a workspace.** `start_chat` with `workspace` opens the chat in a workspace that exists,
-  in its folder, instead of making one. A workspace is its `workspace_id` (chats in the answers carry it;
-  so does `start_chat`'s own answer, for a second chat beside the first) or its name as the sidebar shows
-  it, or the title of a chat in it, with or without the project after it. Like a chat's name it must be
+  in its folder, instead of making one. A workspace is the id of a chat in it (every answer gives a
+  chat's, `start_chat`'s own included, for a second chat beside the first), its `workspace_id`, or its
+  name as the sidebar shows it, or the title of a chat in it, with or without the project after it. Like a chat's name it must be
   whole, or every word of it, and fit one workspace: twins, a partial name and no match change nothing and
   come back with the most recent workspaces, told apart by their chats. Without `workspace`, the chat gets
   a workspace of its own, as before.
-- **Speech, not ids.** Text answers name chats by their title; ids travel in `structuredContent`,
-  which only ChatGPT's model sees.
+- **Ids in the text.** Claude's model reads only the text, so every id the next call takes is there,
+  in brackets after what it names: `[id …]` after each chat (its whole id), `[workspace …]` after a
+  sidebar row no chat stands for (or when the question is which row), `[message_id …]` where a part was
+  cut, `[request …]` on a request that asks questions, `[confirmation …]` on an action that asks
+  first. The descriptions tell the model to pass them and never say them; `structuredContent` keeps
+  every id as before.
+- **Names as the sidebar shows them.** A chat alone in its sidebar row goes by the row's title, the
+  name the user sees, often a summary Paseo wrote; otherwise by its own title, the start of its first
+  message (Paseo keeps 60 characters of it). A chat's `name` field holds that name.
+- **States a model reads as done.** A chat line says `running`, `waiting for approval: …`,
+  `waiting for an answer: …`, `finished, unread reply` (done since the user last looked), `error`
+  or `finished`.
 - **Writes say whether they arrived.** `start_chat`, `send_message`, `answer_questions` and
   `run_slash_command` answer `delivered: true` when the message reached the agent;
   `send_message` and `run_slash_command` answer `busy` with `delivered: false` when the chat was

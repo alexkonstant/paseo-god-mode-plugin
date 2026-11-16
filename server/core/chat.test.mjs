@@ -75,7 +75,7 @@ test("the text view still leaves the reasoning out", async () => {
 
 test("read_chat tells how full the context window is, and nothing when Paseo does not know", async () => {
   const known = await readChatOn(fakeClient({ items: TURNS }), { chat: "relay" });
-  assert.match(known.text, /^Relay probe \(proxy\): idle, .*\nContext window: 6% used \(60k of 1M tokens\)\./);
+  assert.match(known.text, /^Relay probe \(proxy\): finished, .* \[id [0-9a-f-]+\]\nContext window: 6% used \(60k of 1M tokens\)\./);
   assert.deepEqual(known.data.chat.context, { used_tokens: 59606, max_tokens: 1000000, percent_used: 6, remaining_tokens: 940394 });
   const unknown = await readChatOn(fakeClient({ usage: null, items: TURNS }), { chat: "relay", view: "commands" });
   assert.doesNotMatch(unknown.text, /Context window/);
@@ -87,7 +87,7 @@ test("archive_chat archives an idle chat once and says how to bring it back", as
   const result = await archiveChatOn(client, { chat: "relay" });
   assert.deepEqual(client.archived, [ID]);
   assert.deepEqual(result.data, { chat_id: ID, short_id: "b33635a", outcome: "archived", done: true, archived_at: "2026-10-17T12:00:00.000Z" });
-  assert.match(result.text, /^Archived Relay probe\. Its history is kept; a new message to it brings it back\.$/);
+  assert.match(result.text, /^Archived Relay probe \[id [0-9a-f-]+\]\. Its history is kept; a new message to it brings it back\.$/);
 });
 
 test("archive_chat leaves a busy chat alone: a working agent or working subagents", async () => {
@@ -97,7 +97,7 @@ test("archive_chat leaves a busy chat alone: a working agent or working subagent
     assert.deepEqual(client.archived, [], JSON.stringify(busy));
     assert.equal(result.data.outcome, "busy");
     assert.equal(result.data.done, false);
-    assert.match(result.text, /^Not archived: Relay probe is busy/);
+    assert.match(result.text, /^Not archived: Relay probe \[id [0-9a-f-]+\] is busy/);
   }
   const finished = fakeClient({ items: TURNS, subagents: [{ id: "toolu_1", status: "completed" }] });
   assert.equal((await archiveChatOn(finished, { chat: "relay" })).data.outcome, "archived", "finished subagents do not hold it");

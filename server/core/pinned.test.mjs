@@ -120,7 +120,7 @@ test("a project narrows the pins, and one Paseo does not know lists the projects
   const proxy = await listPinnedChatsOn(daemon(), { project: "proxy" });
   assert.equal(proxy.data.scope, "proxy");
   assert.deepEqual(proxy.data.pinned.map((r) => r.name), ["Fleet map"]);
-  assert.match(proxy.text, /^1 pinned in proxy, latest pin first:\nFleet map \(proxy\): idle, 2 min ago/);
+  assert.match(proxy.text, /^1 pinned in proxy, latest pin first:\nFleet map \(proxy\): finished, 2 min ago \[id [0-9a-f-]+\]/);
   const lab = await listPinnedChatsOn(daemon(), { project: "lab" });
   assert.deepEqual(lab.data.pinned.map((r) => r.name), ["Local cluster, step 6 (helm)", "Deploy scripts"]);
   // Said in another script: the projects come back for ChatGPT to map the name and call again.
@@ -146,7 +146,7 @@ test("pin_chat pins a chat's row on any page, as Paseo's Pin does, and names the
   assert.deepEqual(paseo.log.pins, [{ workspaceId: "wks_relay", pinned: true }], "the second page is read, and the row is pinned once");
   assert.equal(
     text,
-    'Pinned Relay load test (proxy): its row "Relay timeouts" is in the Pinned section at the top of Paseo\'s sidebar now. Paseo pins the whole row, so its other chat goes with it: Relay timeouts.',
+    'Pinned Relay load test (proxy) [id 5d6e7f80-0000-4000-8000-000000000006]: its row "Relay timeouts" is in the Pinned section at the top of Paseo\'s sidebar now. Paseo pins the whole row, so its other chat goes with it: Relay timeouts [id 5d6e7f80-0000-4000-8000-000000000005].',
   );
   assert.equal(data.chat_id, LOAD_CHAT);
   assert.equal(data.workspace_id, "wks_relay");
@@ -164,7 +164,7 @@ test("pin_chat by id reaches the chat just started, and a row that holds only it
   const paseo = daemon();
   const { text, data } = await pinChatOn(paseo, { chat: OPEN_CHAT, action: "pin" });
   assert.deepEqual(paseo.log.pins, [{ workspaceId: "wks_open", pinned: true }]);
-  assert.equal(text, 'Pinned Open work (lab): its row "Not pinned" is in the Pinned section at the top of Paseo\'s sidebar now.');
+  assert.equal(text, "Pinned Not pinned (lab) [id b7c1d2e3-0000-4000-8000-000000000002]: its row is in the Pinned section at the top of Paseo's sidebar now.");
   assert.equal(data.outcome, "pinned");
 });
 
@@ -175,7 +175,7 @@ test("a name the chats of one row share names the row: pinned without asking whi
   assert.deepEqual(paseo.log.pins, [{ workspaceId: "wks_relay", pinned: true }]);
   assert.equal(data.needs_clarification, undefined);
   assert.equal(data.chat_id, undefined, "no one chat was picked");
-  assert.equal(text, "Pinned Relay timeouts (proxy): its row is in the Pinned section at the top of Paseo's sidebar now. The row holds: Relay timeouts; Relay load test.");
+  assert.equal(text, "Pinned Relay timeouts (proxy) [workspace wks_relay]: its row is in the Pinned section at the top of Paseo's sidebar now. The row holds: Relay timeouts [id 5d6e7f80-0000-4000-8000-000000000005]; Relay load test [id 5d6e7f80-0000-4000-8000-000000000006].");
 });
 
 test("chats of different rows a name fits equally are asked about, and nothing is pinned", async () => {
@@ -192,16 +192,16 @@ test("unpin takes a pinned chat's row out of Pinned; a pin or unpin already as a
   let paseo = daemon();
   const unpinned = await pinChatOn(paseo, { chat: FLEET_CHAT.slice(0, 7), action: "unpin" });
   assert.deepEqual(paseo.log.pins, [{ workspaceId: "wks_fleet", pinned: false }]);
-  assert.equal(unpinned.text, 'Unpinned Fleet map, stage D (proxy): its row "Fleet map" left the Pinned section of Paseo\'s sidebar.');
+  assert.equal(unpinned.text, "Unpinned Fleet map (proxy) [id a2252400-0000-4000-8000-000000000001]: its row left the Pinned section of Paseo's sidebar.");
   assert.deepEqual([unpinned.data.outcome, unpinned.data.done, unpinned.data.pinned_at], ["unpinned", true, null]);
   // Pinning again would move the row to the top of Pinned: a pin is left as it is.
   paseo = daemon();
   const again = await pinChatOn(paseo, { chat: "Fleet map, stage D", action: "pin" });
-  assert.equal(again.text, "Fleet map, stage D (proxy) is already pinned, since 30 min ago; nothing changed.");
+  assert.equal(again.text, "Fleet map (proxy) [id a2252400-0000-4000-8000-000000000001] is already pinned, since 30 min ago; nothing changed.");
   assert.deepEqual([again.data.outcome, again.data.done], ["already_pinned", false]);
   assert.equal(again.data.pinned_at, FLEET.pinnedAt, "its place in Pinned is kept");
   const loose = await pinChatOn(paseo, { chat: "Open work", action: "unpin" });
-  assert.equal(loose.text, "Open work (lab) is not pinned; nothing changed.");
+  assert.equal(loose.text, "Not pinned (lab) [id b7c1d2e3-0000-4000-8000-000000000002] is not pinned; nothing changed.");
   assert.deepEqual([loose.data.outcome, loose.data.done], ["not_pinned", false]);
   assert.deepEqual(paseo.log.pins, []);
 });
@@ -210,7 +210,7 @@ test("a pinned row with no chat is unpinned by its workspace id; an id of no row
   const paseo = daemon();
   const { text, data } = await pinChatOn(paseo, { workspaceId: "wks_deploy", action: "unpin" });
   assert.deepEqual(paseo.log.pins, [{ workspaceId: "wks_deploy", pinned: false }]);
-  assert.equal(text, "Unpinned Deploy scripts (lab): its row left the Pinned section of Paseo's sidebar. The row holds no active chat.");
+  assert.equal(text, "Unpinned Deploy scripts (lab) [workspace wks_deploy]: its row left the Pinned section of Paseo's sidebar. The row holds no active chat.");
   assert.deepEqual([data.workspace_id, data.outcome, data.done, data.chats], ["wks_deploy", "unpinned", true, []]);
   const gone = await pinChatOn(paseo, { workspaceId: "wks_gone", action: "unpin" });
   assert.deepEqual(gone.data, { needs_clarification: { kind: "workspace", query: "wks_gone", candidates: [] } });
@@ -225,14 +225,14 @@ test("an archived chat, reached by its id only, and a chat with no row change no
     chat("6e7f8091-0000-4000-8000-000000000009", "Orphan", lost, 4),
   ]);
   const archived = await pinChatOn(paseo, { chat: "6e7f8091-0000-4000-8000-000000000008", action: "pin" });
-  assert.equal(archived.text, "Nothing changed: Old DNSSEC check (lab) is archived, so it is not in Paseo's sidebar.");
+  assert.equal(archived.text, "Nothing changed: Old DNSSEC check (lab) [id 6e7f8091-0000-4000-8000-000000000008] is archived, so it is not in Paseo's sidebar.");
   assert.deepEqual([archived.data.outcome, archived.data.done, archived.data.workspace_id], ["archived", false, undefined]);
   const leftover = await pinChatOn(paseo, { chat: "6e7f8091-0000-4000-8000-000000000008", action: "unpin" });
-  assert.match(leftover.text, /list_pinned_chats gives that row's workspace_id to unpin it\.$/);
+  assert.match(leftover.text, /list_pinned_chats gives that row's \[workspace …\] to unpin it\.$/);
   const byName = await pinChatOn(paseo, { chat: "Old DNSSEC check", action: "pin" });
   assert.equal(byName.data.needs_clarification.reason, "no_match", "a name never reaches the archive");
   const orphan = await pinChatOn(paseo, { chat: "Orphan", action: "pin" });
-  assert.equal(orphan.text, "Nothing changed: Paseo's sidebar shows no row for Orphan (lab).");
+  assert.match(orphan.text, /^Nothing changed: Paseo's sidebar shows no row for Orphan \(lab\) \[id [0-9a-f-]+\]\.$/);
   assert.deepEqual([orphan.data.outcome, orphan.data.done], ["no_row", false]);
   assert.deepEqual(paseo.log.pins, []);
   assert.equal(paseo.log.history, 0);
@@ -242,7 +242,7 @@ test("a row with no chat is reached by every word of its name, when only one suc
   let paseo = daemon();
   const unpinned = await pinChatOn(paseo, { chat: "Deploy scripts", action: "unpin" });
   assert.deepEqual(paseo.log.pins, [{ workspaceId: "wks_deploy", pinned: false }], "no chat has the name: the empty pinned row does");
-  assert.equal(unpinned.text, "Unpinned Deploy scripts (lab): its row left the Pinned section of Paseo's sidebar. The row holds no active chat.");
+  assert.equal(unpinned.text, "Unpinned Deploy scripts (lab) [workspace wks_deploy]: its row left the Pinned section of Paseo's sidebar. The row holds no active chat.");
   // A chat that has only some of the words does not stand in the way of the row that has them all.
   paseo = daemon([chat("7f8091a2-0000-4000-8000-00000000000a", "Deploy fixes", OPEN, 6)]);
   assert.equal((await pinChatOn(paseo, { chat: "deploy scripts", action: "unpin" })).data.workspace_id, "wks_deploy");

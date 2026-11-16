@@ -6,6 +6,7 @@ import {
   activityText,
   chatData,
   chatLine,
+  chatName,
   chatQuestion,
   choiceLine,
   contextLine,
@@ -63,10 +64,11 @@ test("chatData carries ISO times next to the relative ones", () => {
     id: "a22524f0-1",
     short_id: "a22524f",
     title: "Fleet",
+    name: "Fleet",
     project: "proxy",
     workspace: null,
     status: "idle",
-    state: "new reply",
+    state: "finished, unread reply",
     pending_approvals: [],
     updated_at: "2026-10-16T11:50:00.000Z",
     updated_ago: "10 min ago",
@@ -181,12 +183,24 @@ test("tool calls show the command and a cut of its output", () => {
   assert.equal(describeToolCall({ ...call, status: "failed", detail: { type: "edit", filePath: "x.js" } }, 100), "edit x.js (failed)");
 });
 
-test("a chat line is spoken words: title, project, state and age, no id", () => {
+test("a chat line names the chat, its project, state and age, then its id", () => {
   const now = Date.parse("2026-10-16T12:00:00Z");
   const chat = { id: "a22524f0-1", title: "Fleet map", project: "proxy", status: "running", attention: null, permissions: [], updatedAt: "2026-10-16T11:50:00Z" };
-  assert.equal(chatLine(chat, now), "Fleet map (proxy): running, 10 min ago");
-  assert.equal(chatLine({ ...chat, subagentsRunning: 2 }, now), "Fleet map (proxy): running, 2 subagent(s) working, 10 min ago");
-  assert.equal(chatLine({ ...chat, status: "idle", attention: "finished", subagentsRunning: 1 }, now), "Fleet map (proxy): 1 subagent(s) working, 10 min ago");
+  assert.equal(chatLine(chat, now), "Fleet map (proxy): running, 10 min ago [id a22524f0-1]");
+  assert.equal(chatLine({ ...chat, subagentsRunning: 2 }, now), "Fleet map (proxy): running, 2 subagent(s) working, 10 min ago [id a22524f0-1]");
+  assert.equal(chatLine({ ...chat, status: "idle", attention: "finished", subagentsRunning: 1 }, now), "Fleet map (proxy): 1 subagent(s) working, 10 min ago [id a22524f0-1]");
+  assert.equal(chatLine({ ...chat, status: "idle", attention: "finished" }, now), "Fleet map (proxy): finished, unread reply, 10 min ago [id a22524f0-1]");
+  assert.equal(chatLine({ ...chat, status: "idle" }, now), "Fleet map (proxy): finished, 10 min ago [id a22524f0-1]");
+});
+
+test("a chat goes by its sidebar row's title when it is alone in the row, else by its own title", () => {
+  const chat = { id: "a22524f0-1", title: "В проекте VoxBridge уже есть провайдер ChatGPT, который рабо", project: "voxbridge", workspace: "Add Claude browser voice provider", cwd: "/Users/x/voxbridge" };
+  assert.equal(chatName({ ...chat, alone: true }), "Add Claude browser voice provider");
+  assert.equal(chatName(chat), chat.title, "beside other chats in its row it goes by its own title");
+  assert.equal(chatName({ ...chat, alone: true, workspace: "voxbridge" }), chat.title, "a row named like its project says nothing of the chat");
+  assert.equal(chatName({ ...chat, alone: true, workspace: "Voxbridge", project: "vb" }), chat.title, "nor one named like its folder");
+  assert.equal(chatName({ ...chat, alone: true, workspace: null }), chat.title);
+  assert.equal(chatLine({ ...chat, alone: true, status: "running", permissions: [], updatedAt: "2026-10-16T11:50:00Z" }, Date.parse("2026-10-16T12:00:00Z")), "Add Claude browser voice provider (voxbridge): running, 10 min ago [id a22524f0-1]");
 });
 
 test("a project name picks the one active chat for reads, never between two", () => {
@@ -291,20 +305,23 @@ test("nothing in common, or under half, matches nothing and offers the closest",
 test("a choice line names the workspace only where it tells chats apart", () => {
   assert.equal(
     choiceLine(STEP5, NOW_R),
-    'Продолжаем учебный кластер demo-dev на миникубе в тестовом а (lab, workspace "Продолжить demo-dev minikube: шаг 5 in-cluster"): idle, 3 h ago',
+    'Продолжаем учебный кластер demo-dev на миникубе в тестовом а (lab, workspace "Продолжить demo-dev minikube: шаг 5 in-cluster"): finished, 3 h ago [id 5e7a0c11-0000]',
   );
-  assert.equal(choiceLine(STAGE, NOW_R), "Обкатка demo-dev на стенде + дока для прода (lab): idle, 30 min ago");
-  assert.equal(choiceLine({ ...STAGE, archived: true }, NOW_R), "Обкатка demo-dev на стенде + дока для прода (lab): idle, archived, 30 min ago");
+  assert.equal(choiceLine(STAGE, NOW_R), "Обкатка demo-dev на стенде + дока для прода (lab): finished, 30 min ago [id 7c1d2e3f-0000]");
+  assert.equal(choiceLine({ ...STAGE, archived: true }, NOW_R), "Обкатка demo-dev на стенде + дока для прода (lab): finished, archived, 30 min ago [id 7c1d2e3f-0000]");
+  // Alone in its row, a chat goes by the row's title, which is then not repeated.
+  assert.equal(choiceLine({ ...STEP5, alone: true }, NOW_R), "Продолжить demo-dev minikube: шаг 5 in-cluster (lab): finished, 3 h ago [id 5e7a0c11-0000]");
 });
 
-test("a chat question says nothing was done, tells the chats apart without ids, and carries the ids", () => {
+test("a chat question says nothing was done, tells the chats apart, and gives each its id", () => {
   const write = chatQuestion("Продолжаем учебный кластер", "same_name", [STEP5, PLAN4], { now: NOW_R });
   assert.match(write.text, /^2 chats are named "Продолжаем учебный кластер", so nothing was done\.\n/);
   assert.match(write.text, /\nAsk the user which one, naming what tells them apart\./);
   assert.match(write.text, /"the latest" is the one updated most recently; "the one about X" is the one whose title or workspace says X/, "the user's own words may pick one");
   assert.match(write.text, /Words they all share, or coming first, are no reason to pick:\n- /, "never the first one by default");
   assert.match(write.text, /workspace "Plan demo-dev minikube monitoring questions §4"/);
-  assert.doesNotMatch(write.text, /5e7a0c11|6b2f9d40/, "no ids to read aloud");
+  assert.match(write.text, /\[id 5e7a0c11-0000\]/, "the id to call again with");
+  assert.match(write.text, /\[id 6b2f9d40-0000\]/);
   assert.deepEqual(write.data.needs_clarification.candidates.map((c) => c.id), [STEP5.id, PLAN4.id]);
   assert.equal(write.data.needs_clarification.reason, "same_name");
   assert.equal(write.data.needs_clarification.kind, "chat");
@@ -369,7 +386,7 @@ test("activity shows running subagents first, then those finished this turn, wit
   assert.equal(
     activityText(a),
     [
-      "Auth refactor (jobby-jobs) is working, 35 min into the turn: waiting for 1 subagent(s).",
+      "Auth refactor (jobby-jobs) [id b7c1d2e3-4f50] is working, 35 min into the turn: waiting for 1 subagent(s).",
       "1 more subagent(s) of this chat are not listed: name the chat to list them all, finished ones included.",
       '- Explore (Opus 5.5, Max effort) "task run": running for 29 min, now reading session.ts.',
       '- Explore (Opus 5.5, Max effort) "task done": completed after 3 min. Result: 14 routes',
@@ -378,7 +395,7 @@ test("activity shows running subagents first, then those finished this turn, wit
   const idle = activityData({ chat: { ...chat, status: "idle", attention: "finished" }, subagents: [sub("bg", "running", 14, 2)], turnStartedAt: at(20), parentStep: null, now });
   assert.equal(idle.working, true, "a backgrounded subagent keeps an idle chat working");
   assert.equal(idle.current_step, null);
-  assert.match(activityText(idle), /^Auth refactor \(jobby-jobs\) is working\./);
+  assert.match(activityText(idle), /^Auth refactor \(jobby-jobs\) \[id b7c1d2e3-4f50\] is working\./);
 });
 
 test("a subagent's model and effort are read out of Paseo's subtitle, in every layout it takes", () => {
@@ -493,10 +510,10 @@ test("images are named by their alt text, else by number, and marked viewable", 
   assert.deepEqual(imageRef({ n: 2, alt: "", source: "https://example.com/x.png" }), { n: 2, name: "image 2", viewable: false });
 });
 
-test("show_images reads as speech: the chat, the turn, what is on screen, what was not, never a path", () => {
-  const chat = { title: "Fleet map", project: "proxy" };
-  assert.equal(imagesText({ chat, turn: null, found: 0, shown: [], skipped: [] }), "No images in the latest turns of Fleet map (proxy).");
-  assert.equal(imagesText({ chat, turn: 2, found: 0, shown: [], skipped: [] }), "No images in turn 2 of Fleet map (proxy).");
+test("show_images reads as speech: the chat and its id, the turn, what is on screen, what was not, never a path", () => {
+  const chat = { id: "a22524f0-1", title: "Fleet map", project: "proxy" };
+  assert.equal(imagesText({ chat, turn: null, found: 0, shown: [], skipped: [] }), "No images in the latest turns of Fleet map (proxy) [id a22524f0-1].");
+  assert.equal(imagesText({ chat, turn: 2, found: 0, shown: [], skipped: [] }), "No images in turn 2 of Fleet map (proxy) [id a22524f0-1].");
   const text = imagesText({
     chat,
     turn: null,
@@ -504,7 +521,7 @@ test("show_images reads as speech: the chat, the turn, what is on screen, what w
     shown: [{ n: 1, turn: 1, name: "Login page" }],
     skipped: [{ n: 2, turn: 1, name: "image 2", reason: "missing" }],
   });
-  assert.match(text, /^Showing 1 image\(s\) from Fleet map \(proxy\), turn 1: Login page\. They are on the user's screen now\./);
+  assert.match(text, /^Showing 1 image\(s\) from Fleet map \(proxy\) \[id a22524f0-1\], turn 1: Login page\. They are on the user's screen now\./);
   assert.match(text, /do not guess what they show/);
   assert.match(text, /Not shown: image 2, no longer on the Mac/);
   assert.match(text, /1 more image\(s\) in these turns/);
@@ -533,30 +550,37 @@ const pinChat = (id, title, fields = {}) => ({
 });
 // A pinned row as list_pinned_chats builds it from Paseo's workspace: latest pin first in ROWS.
 const pinRow = (id, name, chats, fields = {}) => ({ id, name, project: "lab", branch: null, pinnedAt: "2026-10-26T15:00:00Z", status: "done", chats, ...fields });
-const FLEET_PIN = pinRow("wks_fleet", "Fleet map", [pinChat("a2252400-0000-4000-8000-000000000001", "Fleet map, stage D", { project: "proxy", status: "running", updatedAt: "2026-10-26T17:58:00Z" })], {
+const FLEET_PIN = pinRow("wks_fleet", "Fleet map", [pinChat("a2252400-0000-4000-8000-000000000001", "Fleet map, stage D", { project: "proxy", workspace: "Fleet map", alone: true, status: "running", updatedAt: "2026-10-26T17:58:00Z" })], {
   project: "proxy",
   pinnedAt: "2026-10-26T17:00:00Z",
   status: "running",
 });
 const DEPLOY_PIN = pinRow("wks_deploy", "Deploy scripts", [], { branch: "ci-hooks", pinnedAt: "2026-10-26T12:00:00Z" });
-const CLUSTER_PIN = pinRow("wks_cluster", "Local cluster, step 6 (helm)", [pinChat("739a96bc-0000-4000-8000-000000000002", "Продолжаем учебный кластер на миникубе в тестовом а")], {
+const CLUSTER_PIN = pinRow("wks_cluster", "Local cluster, step 6 (helm)", [pinChat("739a96bc-0000-4000-8000-000000000002", "Продолжаем учебный кластер на миникубе в тестовом а", { workspace: "Local cluster, step 6 (helm)", alone: true })], {
   pinnedAt: "2026-10-26T09:00:00Z",
 });
 const NOTES_PIN = pinRow(
   "wks_notes",
   "Release notes",
   [
-    pinChat("c3d4e5f6-0000-4000-8000-000000000003", "Release notes 0.6", { attention: "finished", updatedAt: "2026-10-26T17:55:00Z" }),
-    pinChat("c3d4e5f6-0000-4000-8000-000000000004", "Release notes 0.5", { updatedAt: "2026-10-26T17:00:00Z" }),
+    pinChat("c3d4e5f6-0000-4000-8000-000000000003", "Release notes 0.6", { workspace: "Release notes", attention: "finished", updatedAt: "2026-10-26T17:55:00Z" }),
+    pinChat("c3d4e5f6-0000-4000-8000-000000000004", "Release notes 0.5", { workspace: "Release notes", updatedAt: "2026-10-26T17:00:00Z" }),
   ],
   { pinnedAt: "2026-10-26T08:00:00Z", status: "attention" },
 );
 const ROWS = [FLEET_PIN, DEPLOY_PIN, CLUSTER_PIN, NOTES_PIN];
 
 test("a pinned row reads as the sidebar shows it: its name, project and what its chats do", () => {
-  assert.equal(pinnedLine(FLEET_PIN, PIN_NOW), "Fleet map (proxy): running, 2 min ago");
-  assert.equal(pinnedLine(DEPLOY_PIN, PIN_NOW), "Deploy scripts (lab): no active chat");
-  assert.equal(pinnedLine(NOTES_PIN, PIN_NOW), "Release notes (lab): 2 chats: Release notes 0.6, new reply, 5 min ago; Release notes 0.5, idle, 1 h ago");
+  assert.equal(pinnedLine(FLEET_PIN, PIN_NOW), "Fleet map (proxy): running, 2 min ago [id a2252400-0000-4000-8000-000000000001]");
+  assert.equal(pinnedLine(DEPLOY_PIN, PIN_NOW), "Deploy scripts (lab) [workspace wks_deploy]: no active chat");
+  assert.equal(
+    pinnedLine(NOTES_PIN, PIN_NOW),
+    "Release notes (lab): 2 chats: Release notes 0.6, finished, unread reply, 5 min ago [id c3d4e5f6-0000-4000-8000-000000000003]; Release notes 0.5, finished, 1 h ago [id c3d4e5f6-0000-4000-8000-000000000004]",
+  );
+  // A row named like its project says nothing of its chat, which then goes by its own title.
+  const plain = pinRow("wks_lab", "lab", [pinChat("d4e5f6a7-0000-4000-8000-000000000009", "Open work", { workspace: "lab", alone: true })]);
+  assert.equal(pinnedLine(plain, PIN_NOW), 'lab (lab): chat "Open work", finished, 10 min ago [id d4e5f6a7-0000-4000-8000-000000000009]');
+  assert.equal(pinnedLine(FLEET_PIN, PIN_NOW, { workspaceId: true }), "Fleet map (proxy) [workspace wks_fleet]: running, 2 min ago [id a2252400-0000-4000-8000-000000000001]", "when the question is which row");
 });
 
 test("a query picks pinned rows by every word, else by half of them, else gives every row back", () => {
@@ -579,11 +603,11 @@ test("list_pinned_chats answers with the rows, the way the query matched, and th
     all.text,
     [
       "4 pinned, latest pin first:",
-      "Fleet map (proxy): running, 2 min ago",
-      "Deploy scripts (lab): no active chat",
-      "Local cluster, step 6 (helm) (lab): idle, 10 min ago",
-      "Release notes (lab): 2 chats: Release notes 0.6, new reply, 5 min ago; Release notes 0.5, idle, 1 h ago",
-      "The data carries each chat's id: pass it to the next tool. If the user meant one and several fit, ask which.",
+      "Fleet map (proxy): running, 2 min ago [id a2252400-0000-4000-8000-000000000001]",
+      "Deploy scripts (lab) [workspace wks_deploy]: no active chat",
+      "Local cluster, step 6 (helm) (lab): finished, 10 min ago [id 739a96bc-0000-4000-8000-000000000002]",
+      "Release notes (lab): 2 chats: Release notes 0.6, finished, unread reply, 5 min ago [id c3d4e5f6-0000-4000-8000-000000000003]; Release notes 0.5, finished, 1 h ago [id c3d4e5f6-0000-4000-8000-000000000004]",
+      "If the user meant one and several fit, ask which.",
     ].join("\n"),
   );
   assert.deepEqual(Object.keys(all.data), ["scope", "query", "total", "pinned"], "no query_match without a query");
@@ -600,7 +624,7 @@ test("list_pinned_chats answers with the rows, the way the query matched, and th
   });
   assert.equal(all.data.pinned[1].branch, "ci-hooks");
   assert.deepEqual(all.data.pinned[1].chats, []);
-  assert.deepEqual(all.data.pinned[3].chats.map((c) => c.state), ["new reply", "idle"]);
+  assert.deepEqual(all.data.pinned[3].chats.map((c) => c.state), ["finished, unread reply", "finished"]);
 
   const one = pinnedResult(ROWS, { scope: "all projects", query: "миникуб", now: PIN_NOW });
   assert.match(one.text, /^1 pinned match "миникуб":\nLocal cluster, step 6/);

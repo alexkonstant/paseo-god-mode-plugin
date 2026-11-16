@@ -170,9 +170,10 @@ test("the case: two active chats share a cut title; the whole line asks about th
   assert.deepEqual(ask.candidates.map((c) => c.workspace), [STEP5.workspace, PLAN4.workspace]);
   assert.match(result.text, /^2 chats are named "Продолжаем учебный кластер demo-dev на миникубе в тестовом аккаунте", so nothing was done\.\n/);
   assert.match(result.text, /\nAsk the user which one, naming what tells them apart\. Pick one yourself \(call again with its id\) only if the user's words pick it/);
-  assert.match(result.text, /workspace "Продолжить demo-dev minikube: шаг 5 in-cluster"\): idle, 3 h ago/);
-  assert.match(result.text, /workspace "Plan demo-dev minikube monitoring questions §4"\): idle, 25 h ago/);
-  assert.doesNotMatch(result.text, /5e7a0c11|6b2f9d40/, "the text has no ids to read aloud");
+  // Each alone in its row, they go by the rows' titles, which tell them apart, with the ids to call again with.
+  assert.match(result.text, /\n- Продолжить demo-dev minikube: шаг 5 in-cluster \(lab\): finished, 3 h ago \[id 5e7a0c11-[0-9a-f-]+\]/);
+  assert.match(result.text, /\n- Plan demo-dev minikube monitoring questions §4 \(lab\): finished, 25 h ago \[id 6b2f9d40-[0-9a-f-]+\]/);
+  assert.doesNotMatch(result.text, /workspace "/, "a row's title that is already the name is not repeated");
   assert.deepEqual(daemon.log, NOTHING);
   assert.equal(daemon.archiveLookups, 0, "the archived chat with that title is not even looked at");
 });

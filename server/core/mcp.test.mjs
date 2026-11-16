@@ -233,7 +233,7 @@ test("tools/list exposes twenty-five tools, output schemas and honest annotation
   // A row's label is the workspace's: the wrong tool of the two changes the wrong name.
   assert.match(byName.rename_chat.description, /A row of Paseo's sidebar, the Pinned section included, shows its workspace's name instead: for a row or a pin's label use rename_workspace/);
   assert.match(byName.rename_workspace.description, /The name a row shows, in the Pinned section too, is its workspace's name: a pinned row stays pinned and shows the new name, and the chats in it stay and keep their own names/);
-  assert.match(byName.rename_workspace.description, /workspace_id from earlier results \(list_pinned_chats, list_chats, start_chat\)/);
+  assert.match(byName.rename_workspace.description, /Pass workspace: the \[id …\] of a chat in it, or its \[workspace …\], from earlier results/);
   assert.match(byName.list_pinned_chats.outputSchema.properties.pinned.items.properties.name.description, /rename_workspace changes it/);
   assert.equal(byName.set_chat_model.annotations.readOnlyHint, false);
   assert.equal(byName.set_chat_model.annotations.destructiveHint, false, "one more call puts it back");
@@ -274,7 +274,7 @@ test("the call rules are repeated where ChatGPT picks the tool", () => {
   assert.doesNotMatch(byName.read_chat.description, /share none/, "Claude Code here records thinking: the hint made the model give up");
   assert.match(byName.read_message.description, /Call it yourself, unasked, when an answer you got is cut and the question needs the cut part/);
   assert.match(byName.read_message.description, /next_offset null is the end\. For the end of a long text \(an error, a test summary, a conclusion\), mode tail first\. Not for a gist or a count/);
-  assert.match(byName.read_activity.description, /when the user asks what they found or concluded, read_message with its result_id/);
+  assert.match(byName.read_activity.description, /when the user asks what they found or concluded, read_message with the message_id on its line \(result_id\)/);
   assert.match(byName.search_messages.description, /For how many, total_matches is the answer: no paging\./);
   // Numbers a model asks for get through ChatGPT's own check; the Site uses what it can.
   assert.equal(byName.read_chat.inputSchema.properties.max_chars.maximum, 20000);
@@ -300,7 +300,7 @@ test("the call rules are repeated where ChatGPT picks the tool", () => {
   assert.match(byName.read_message.description, /Pass the id you have/);
   assert.match(byName.read_message.description, /a turn's whole thinking and a tool call's whole output \(read_chat views thinking and commands\) and a subagent's whole final message \(read_activity's result_id\)/);
   assert.match(byName.read_chat.description, /a tool call by its id \(view commands\), a turn's thinking by thinking_id\./);
-  assert.match(byName.read_activity.description, /read_message with its result_id reads its whole final message; not for whether they are done/);
+  assert.match(byName.read_activity.description, /read_message with the message_id on its line \(result_id\) reads its whole final message; not for whether they are done/);
   assert.match(byName.send_message.description, /The agent's answer is not in the result: offer to check it later with read_chat; do not poll\./);
   assert.doesNotMatch(byName.send_message.description, /say so and stop/, "stop read as: no more calls, not even to read the rest of the reply");
   assert.match(byName.search_messages.description, /newest first; pass chat to search a single chat \(next_offset shows its older matches\)/);
@@ -308,7 +308,8 @@ test("the call rules are repeated where ChatGPT picks the tool", () => {
     const chat = byName[tool].inputSchema.properties.chat.description;
     assert.match(chat, /Ids are for calls only/, tool);
     assert.match(chat, /Keep the chat being discussed/, tool);
-    assert.match(chat, /its id from earlier results in this conversation when you have it \(titles repeat/, tool);
+    assert.match(chat, /its id from earlier results in this conversation when you have it, the \[id …\] after its name \(names repeat/, tool);
+    assert.match(chat, /to the user, say the chat's name as results give it/, tool);
     assert.match(chat, /The tool resolves a name itself, so no list_chats first\./, tool);
     assert.match(chat, /"Fleet map \(proxy\)"/, `${tool}: a project can narrow the name`);
     const clarify = byName[tool].outputSchema.properties.needs_clarification;
@@ -360,10 +361,10 @@ test("the call rules are repeated where ChatGPT picks the tool", () => {
   assert.match(byName.pin_chat.description, /^Use this only when the user's latest words tell you to pin or unpin a chat in Paseo's sidebar/);
   assert.match(byName.pin_chat.description, /Paseo pins the chat's row, its workspace/);
   assert.match(byName.pin_chat.description, /with any other chat it holds/);
-  assert.match(byName.pin_chat.description, /start_chat's chat_id for a chat just started/);
+  assert.match(byName.pin_chat.description, /the \[id …\] start_chat gave a chat just started/);
   assert.match(byName.pin_chat.description, /needs_clarification means nothing changed: ask which/);
   assert.match(byName.pin_chat.description, /A chat picked by its pin \("unpin the pinned chat in proxy"\) is found with list_pinned_chats first/);
-  assert.match(byName.pin_chat.description, /a row with no chat takes its name, or its workspace_id from there/);
+  assert.match(byName.pin_chat.description, /a row with no chat takes its name, or its \[workspace …\] from there/);
   assert.match(byName.pin_chat.description, /No read-back needed/);
   assert.match(byName.list_pinned_chats.outputSchema.properties.pinned.items.properties.workspace_id.description, /pin_chat takes it for a row with no chat/);
   // A chat's model and thinking level change in the same chat, never through a new one.
@@ -391,7 +392,7 @@ test("the call rules are repeated where ChatGPT picks the tool", () => {
   assert.match(byName.set_chat_model.inputSchema.properties.thinking.description, /only where the new model offers it/);
   // Another tab in a workspace that exists, rather than a new workspace.
   assert.match(byName.start_chat.description, /To open the chat in a workspace that already exists, as another tab beside its chats/);
-  assert.match(byName.start_chat.description, /pass workspace: its workspace_id from earlier results \(list_chats, list_pinned_chats, start_chat\) or its name as the user said it/);
+  assert.match(byName.start_chat.description, /pass workspace: the \[id …\] of a chat in it, or its \[workspace …\], from earlier results, or its name as the user said it/);
   assert.match(byName.start_chat.description, /Without workspace the chat gets a workspace of its own, as New chat does\./);
   assert.match(byName.start_chat.inputSchema.properties.workspace.description, /Leave empty for a workspace of its own/);
   assert.match(byName.read_chat.description, /view "thinking"/);

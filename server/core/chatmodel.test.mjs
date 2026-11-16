@@ -104,7 +104,7 @@ const nowOn = { model: "claude-sonnet-5-5", thinking: "max" };
 test("changeResult: every way a change can end says what the chat runs on and whether anything changed", () => {
   const sonnet = CLAUDE_MODELS[1];
   const changed = changeResult({ outcome: "changed", chat: FLEET, provider: CATALOG[0], before: was, after: nowOn, change: { model: sonnet, thinking: "max", after: sonnet } });
-  assert.equal(changed.text, "Changed Fleet map (proxy): it runs on Sonnet 5.5, thinking Max now, it was Opus 5.5, thinking Medium. Its history is kept and no new chat was started. The next message runs on it.");
+  assert.equal(changed.text, "Changed Fleet map (proxy) [id a2252400-0000-4000-8000-000000000001]: it runs on Sonnet 5.5, thinking Max now, it was Opus 5.5, thinking Medium. Its history is kept and no new chat was started. The next message runs on it.");
   assert.deepEqual(changed.data, {
     chat_id: FLEET.id,
     short_id: "a225240",
@@ -130,16 +130,16 @@ test("changeResult: every way a change can end says what the chat runs on and wh
 
 test("changeResult: nothing changed says so, and a refusal says what the chat still runs on", () => {
   const same = changeResult({ outcome: "unchanged", chat: FLEET, provider: CATALOG[0], before: nowOn });
-  assert.equal(same.text, "Fleet map (proxy) already runs on Sonnet 5.5, thinking Max; nothing changed.");
+  assert.equal(same.text, "Fleet map (proxy) [id a2252400-0000-4000-8000-000000000001] already runs on Sonnet 5.5, thinking Max; nothing changed.");
   assert.equal(same.data.done, false);
-  assert.equal(changeResult({ outcome: "archived", chat: FLEET, provider: CATALOG[0], before: was }).text, "Nothing changed: Fleet map (proxy) is archived. Tell the user.");
+  assert.equal(changeResult({ outcome: "archived", chat: FLEET, provider: CATALOG[0], before: was }).text, "Nothing changed: Fleet map (proxy) [id a2252400-0000-4000-8000-000000000001] is archived. Tell the user.");
   const other = changeResult({ outcome: "other_runtime", chat: FLEET, provider: CATALOG[0], before: was, other: { provider: CATALOG[1], model: CODEX_MODELS[0] } });
-  assert.match(other.text, /^Nothing changed: GPT-6\.1-Sol is a Codex model, and a Claude chat cannot change its runtime, so Fleet map \(proxy\) stays on Opus 5\.5, thinking Medium\. A chat on GPT-6\.1-Sol is a new one, start_chat, without this chat's history: ask the user\.$/);
+  assert.match(other.text, /^Nothing changed: GPT-6\.1-Sol is a Codex model, and a Claude chat cannot change its runtime, so Fleet map \(proxy\) \[id [0-9a-f-]+\] stays on Opus 5\.5, thinking Medium\. A chat on GPT-6\.1-Sol is a new one, start_chat, without this chat's history: ask the user\.$/);
   const failed = changeResult({ outcome: "error", chat: FLEET, provider: CATALOG[0], before: was, error: "Paseo refused it: Failed to apply agent config" });
-  assert.equal(failed.text, "Not changed: Paseo refused it: Failed to apply agent config. Fleet map (proxy) runs on Opus 5.5, thinking Medium.");
+  assert.equal(failed.text, "Not changed: Paseo refused it: Failed to apply agent config. Fleet map (proxy) [id a2252400-0000-4000-8000-000000000001] runs on Opus 5.5, thinking Medium.");
   assert.deepEqual([failed.data.done, failed.data.error], [false, "Paseo refused it: Failed to apply agent config"]);
   const partial = changeResult({ outcome: "partial", chat: FLEET, provider: CATALOG[0], before: was, after: { model: "claude-sonnet-5-5", thinking: "medium" }, error: "Paseo refused it: no such level" });
-  assert.match(partial.text, /^Partly changed Fleet map \(proxy\): it runs on Sonnet 5\.5, thinking Medium now, but not all of what was asked: Paseo refused it: no such level\./);
+  assert.match(partial.text, /^Partly changed Fleet map \(proxy\) \[id [0-9a-f-]+\]: it runs on Sonnet 5\.5, thinking Medium now, but not all of what was asked: Paseo refused it: no such level\./);
   assert.equal(partial.data.done, true, "something did change");
 });
 
@@ -230,7 +230,7 @@ test("setChatModelOn: the model and the level change in one request, and the ans
   const { text, data } = await setChatModelOn(paseo, { chat: "Fleet map", model: "Sonnet 5.5", thinking: "max" });
   assert.deepEqual(paseo.calls.find((c) => c[0] === "snapshot")[1], { cwd: "/Users/r/lab" }, "the chat's own folder's catalog");
   assert.deepEqual(paseo.calls.filter((c) => c[0] === "apply"), [["apply", FLEET_ID, { modelId: "claude-sonnet-5-5", thinkingOptionId: "max" }]], "one request");
-  assert.equal(text, "Changed Fleet map (lab): it runs on Sonnet 5.5, thinking Max now, it was Opus 5.5, thinking Medium. Its history is kept and no new chat was started. The next message runs on it.");
+  assert.equal(text, "Changed Fleet map (lab) [id a2252400-0000-4000-8000-000000000001]: it runs on Sonnet 5.5, thinking Max now, it was Opus 5.5, thinking Medium. Its history is kept and no new chat was started. The next message runs on it.");
   assert.deepEqual(
     { outcome: data.outcome, done: data.done, provider: data.provider, before: data.before, after: data.after, busy: data.busy },
     { outcome: "changed", done: true, provider: "claude", before: { model: "claude-opus-5-5", thinking: "medium" }, after: { model: "claude-sonnet-5-5", thinking: "max" }, busy: false },
@@ -311,11 +311,11 @@ test("setChatModelOn: when Paseo refuses part of it, the answer says what applie
   const partial = daemon({ chats: WORLD(), refuse: "Failed to apply agent config: Thinking option 'ultracode' is not available for model 'claude-sonnet-5-5'" });
   const half = await setChatModelOn(partial, { chat: "Fleet map", model: "Sonnet 5.5", thinking: "ultracode" });
   assert.deepEqual([half.data.outcome, half.data.done, half.data.after.model, half.data.after.thinking], ["partial", true, "claude-sonnet-5-5", "medium"]);
-  assert.match(half.text, /^Partly changed Fleet map \(lab\): it runs on Sonnet 5\.5, thinking Medium now, but not all of what was asked: Paseo refused it: Failed to apply agent config/);
+  assert.match(half.text, /^Partly changed Fleet map \(lab\) \[id [0-9a-f-]+\]: it runs on Sonnet 5\.5, thinking Medium now, but not all of what was asked: Paseo refused it: Failed to apply agent config/);
   const none = daemon({ chats: WORLD(), refuse: "Failed to apply agent config: no" });
   const refused = await setChatModelOn(none, { chat: "Fleet map", thinking: "max" });
   assert.deepEqual([refused.data.outcome, refused.data.done, refused.data.after.thinking], ["error", false, "medium"]);
-  assert.match(refused.text, /^Not changed: Paseo refused it: Failed to apply agent config: no\. Fleet map \(lab\) runs on Opus 5\.5, thinking Medium\.$/);
+  assert.match(refused.text, /^Not changed: Paseo refused it: Failed to apply agent config: no\. Fleet map \(lab\) \[id [0-9a-f-]+\] runs on Opus 5\.5, thinking Medium\.$/);
 });
 
 test("setChatModelOn: an answer Paseo accepts but does not show is not reported as done", async () => {

@@ -6,7 +6,7 @@
 // each question's header, options by their label, several joined with ", ". Paseo maps those to what
 // each agent takes: Claude's answers by question text, Codex's by header. Pure, so the eval stub runs
 // it too.
-import { charCount, chatData, chatLine, describePermission, MESSAGE_PAGE, messageWindow, normalize, truncate } from "./text.mjs";
+import { charCount, chatData, chatLine, describePermission, MESSAGE_PAGE, messageWindow, namedChat, normalize, truncate } from "./text.mjs";
 
 // Claude marks the option it recommends in its label: "Continue (Recommended)".
 const RECOMMENDED = /\s*\(recommended\)\s*/i;
@@ -193,7 +193,7 @@ function requestLines(permission, n) {
     return [`${head} (allow or deny with answer_approval). ${name}${cut}:`, data.text];
   }
   if (data.answer_with === "paseo") return [`${head}. God Mode cannot answer it: ${data.why}; the user answers it in Paseo.`];
-  return [`${head}. Questions:`, ...parseQuestions(permission.input).flatMap(questionLines)];
+  return [`${head} [request ${data.id}]. Questions:`, ...parseQuestions(permission.input).flatMap(questionLines)];
 }
 
 // read_approval's answer: every request the chat waits on, questions and options in full.
@@ -224,7 +224,7 @@ export function questionsNeedAnswers(chat, permission, now = Date.now()) {
 // (by id), ask questions God Mode can fill, and the answers fill its every question. Returns
 // { refused: {text, data} } when nothing is to be sent, else { permission, filled }.
 export function prepareAnswers(chat, request, answers) {
-  const title = truncate(chat.title, 70);
+  const title = namedChat(chat);
   const ids = { chat_id: chat.id, short_id: chat.id.slice(0, 7), project: chat.project, request };
   const refuse = (outcome, text, more = {}) => ({ refused: { text, data: { ...ids, outcome, delivered: false, ...more } } });
   const permission = chat.permissions.find((p) => p.id === request);
@@ -256,7 +256,7 @@ export const answerResponse = (permission, filled) => ({ behavior: "allow", upda
 export function answeredResult(chat, request, filled, outcome) {
   const said = filled.answered.map((a) => `${a.header}: ${a.answer}`).join("; ");
   return {
-    text: `Answered ${truncate(chat.title, 70)} (${said}); it arrived. Do not send it again.\n${outcome.text}`,
+    text: `Answered ${namedChat(chat)} (${said}); it arrived. Do not send it again.\n${outcome.text}`,
     data: { chat_id: chat.id, short_id: chat.id.slice(0, 7), project: chat.project, request, answered: filled.answered, ...outcome.data },
   };
 }

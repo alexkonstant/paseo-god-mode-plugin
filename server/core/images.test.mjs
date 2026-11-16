@@ -76,8 +76,9 @@ test("the newest image of a chat comes back as bytes for the widget and as speec
   assert.equal(result.data.total_images, 3, "the latest turns hold three");
   assert.match(result.text, /2 more image\(s\) in these turns/);
   assert.equal(result.data.chat.id, FLEET.id);
-  assert.match(result.text, /^Showing 1 image\(s\) from Fleet map \(proxy\), turn 1: image 1\. They are on the user's screen now\./);
-  for (const leak of [TEMP, HASH, FLEET.id, "file://"]) assert.ok(!result.text.includes(leak), leak);
+  assert.match(result.text, /^Showing 1 image\(s\) from Fleet map \(proxy\) \[id [0-9a-f-]+\], turn 1: image 1\. They are on the user's screen now\./);
+  for (const leak of [TEMP, HASH, "file://"]) assert.ok(!result.text.includes(leak), leak);
+  assert.ok(result.text.includes(`[id ${FLEET.id}]`), "the chat's id, for the next call");
   assert.ok(!JSON.stringify(result.data).includes(TEMP), "no path in what the model reads");
 });
 
@@ -139,7 +140,7 @@ test("a chat looks further back when its latest turns have no image", async () =
   const result = await showImagesOn(fakeClient([older], { [`${TEMP}|old.png`]: png(10) }), { chat: older.id });
   assert.deepEqual(result.data.images.map((i) => [i.turn, i.n]), [[5, 1]]);
   const empty = await showImagesOn(fakeClient([older]), { chat: older.id, turn: 1 });
-  assert.equal(empty.text, "No images in turn 1 of Old shot (proxy).");
+  assert.equal(empty.text, "No images in turn 1 of Old shot (proxy) [id d4e5f6a7-2b3c-4d5e-8f60-718293a4b5c6].");
 });
 
 test("an unknown chat asks which one instead of guessing", async () => {

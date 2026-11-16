@@ -102,7 +102,7 @@ test("read_approval gives every question with its numbered options, the recommen
     [1, "Release", [[1, "Continue (Recommended)", true], [2, "Stop", false]]],
     [2, "Daemon", [[1, "Leave it (Recommended)", true], [2, "Install from the tag", false]]],
   ]);
-  assert.match(text, /^Release 0\.4 of the bridge \(lab\): waiting for an answer: 2 questions: Release, Daemon, 5 min ago\nRequest 1: 2 questions: Release, Daemon\. Questions:\n1\. Release: One test failed once/);
+  assert.match(text, /^Release 0\.4 of the bridge \(lab\): waiting for an answer: 2 questions: Release, Daemon, 5 min ago \[id [0-9a-f-]+\]\nRequest 1: 2 questions: Release, Daemon \[request permission-7d1e\]\. Questions:\n1\. Release: One test failed once/);
   assert.match(text, /\n {3}1\) Continue \(Recommended\) — Release with a note on the flaky test\.\n {3}2\) Stop\n {3}or an answer in the user's own words\n2\. Daemon: /);
   assert.match(text, /never choose for them, not even the recommended option\.$/);
   const plain = await readApprovalOn(fakeDaemon([ASKING, PLAIN]), { chat: "Publish the package" });
@@ -133,7 +133,7 @@ test("answer_questions sends the user's choices as Paseo's form does, and does n
     ["Release", "Continue (Recommended)"],
     ["Daemon", "Install from the tag"],
   ]);
-  assert.match(result.text, /^Answered Release 0\.4 of the bridge \(Release: Continue \(Recommended\); Daemon: Install from the tag\); it arrived\. Do not send it again\.\n/);
+  assert.match(result.text, /^Answered Release 0\.4 of the bridge \[id [0-9a-f-]+\] \(Release: Continue \(Recommended\); Daemon: Install from the tag\); it arrived\. Do not send it again\.\n/);
 });
 
 test("nothing is sent for answers that leave a question out or name what is not there, and the questions come back", async () => {
@@ -143,7 +143,7 @@ test("nothing is sent for answers that leave a question out or name what is not 
   assert.equal(result.data.delivered, false);
   assert.deepEqual(result.data.problems, ["question 2 (Daemon) has no answer yet: ask the user; its options: 1) Leave it (Recommended), 2) Install from the tag."]);
   assert.equal(result.data.questions.length, 2);
-  assert.match(result.text, /^Nothing was sent to Release 0\.4 of the bridge:\n- question 2 \(Daemon\) has no answer yet/);
+  assert.match(result.text, /^Nothing was sent to Release 0\.4 of the bridge \[id [0-9a-f-]+\]:\n- question 2 \(Daemon\) has no answer yet/);
   assert.deepEqual(daemon.log.answered, []);
 });
 

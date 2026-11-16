@@ -148,13 +148,13 @@ export function settleChat(chats, query, { read = false } = {}) {
   return { ask: found.tier === "exact" ? "same_name" : "similar", chats: found.best };
 }
 
-// A chat among others the user picks from: its chat line, with its workspace's title where that
-// tells it apart, since such chats often share a title.
+// A chat among others the user picks from: its chat line, with its workspace's title where the chat
+// goes by its own title and the workspace's tells it apart, since such chats often share a title.
 export function choiceLine(chat, now = Date.now()) {
   const workspace = String(chat.workspace ?? "").trim();
-  const tells = workspace !== "" && ![normalize(chat.title), normalize(chat.project)].includes(normalize(workspace));
+  const tells = !rowTitleOf(chat) && workspace !== "" && ![normalize(chat.title), normalize(chat.project)].includes(normalize(workspace));
   const where = tells ? `${chat.project}, workspace "${truncate(workspace, 70)}"` : chat.project;
-  return `${truncate(chat.title, 70)} (${where}): ${chatState(chat)}${chat.archived ? ", archived" : ""}, ${ago(chat.updatedAt, now)}`;
+  return `${chatName(chat)} (${where}): ${chatState(chat)}${chat.archived ? ", archived" : ""}, ${ago(chat.updatedAt, now)} [id ${chat.id}]`;
 }
 
 const CHOICES_SHOWN = 5;
@@ -178,7 +178,7 @@ const CHAT_QUESTION_NOTES = {
 };
 
 // needs_clarification for a chat reference: why it did not settle (reason) and the chats to pick
-// from, which the text tells apart without ids. `read` false: a write, so the text says nothing was
+// from, each with its id. `read` false: a write, so the text says nothing was
 // done. What the model does next: take the one the conversation is about, by its id, or ask.
 export function chatQuestion(query, reason, chats, { read = false, now = Date.now() } = {}) {
   const shown = chats.slice(0, CHOICES_SHOWN);
@@ -274,6 +274,7 @@ export function chatData(chat, now = Date.now()) {
     id: chat.id,
     short_id: chat.id.slice(0, 7),
     title: chat.title,
+    name: chatName(chat),
     project: chat.project,
     workspace: chat.workspace ?? null,
     status: chat.status,
@@ -362,14 +363,29 @@ export function chatState(chat) {
   if (chat.status === "running" || chat.status === "initializing") return helpers ? `running, ${helpers}` : "running";
   if (helpers) return helpers;
   if (chat.status === "error" || chat.attention === "error") return "error";
-  if (chat.attention === "finished") return "new reply";
-  return "idle";
+  if (chat.attention === "finished") return "finished, unread reply";
+  return "finished";
 }
 
-// A chat in words to be spoken: title, project, state, age. Ids stay in the structured data.
+// The title of a chat's sidebar row when that is what the sidebar calls the chat: the chat is alone in
+// its row, and the row has a title of its own, not its project's or folder's name. Else null.
+function rowTitleOf(chat) {
+  const row = String(chat.workspace ?? "").trim();
+  const folder = String(chat.cwd ?? "").split("/").filter(Boolean).at(-1) ?? "";
+  return chat.alone && row !== "" && ![chat.project, folder].map(normalize).includes(normalize(row)) ? row : null;
+}
+
+// What Paseo's sidebar calls a chat, the name to say: its row's title when the chat is alone in the
+// row (often a summary Paseo wrote of it), else the chat's own title, the start of its first message.
+export const chatName = (chat) => truncate(rowTitleOf(chat) ?? chat.title, 70);
+
+// A chat named in a sentence, with its id for the next call: "Fleet map [id 9f1c…]".
+export const namedChat = (chat) => `${chatName(chat)} [id ${chat.id}]`;
+
+// A chat in one line: the name to say, its project, state and age, then its id for the next call.
 export function chatLine(chat, now = Date.now()) {
   const archived = chat.archived ? ", archived" : "";
-  return `${truncate(chat.title, 70)} (${chat.project}): ${chatState(chat)}${archived}, ${ago(chat.updatedAt, now)}`;
+  return `${chatName(chat)} (${chat.project}): ${chatState(chat)}${archived}, ${ago(chat.updatedAt, now)} [id ${chat.id}]`;
 }
 
 // The structured form of one tool call. With where it starts in the timeline (`seq`) it also says
@@ -438,12 +454,18 @@ export function pinnedData(row, now = Date.now()) {
   };
 }
 
-// A pinned row in words: its name as the sidebar shows it, its project, and what its chats do.
-export function pinnedLine(row, now = Date.now()) {
-  const head = `${truncate(row.name, 70)} (${row.project})`;
+// A pinned row in words: its name as the sidebar shows it, its project, and what its chats do, each
+// with its id. The row's own id where no chat stands for it, or when the question is which row.
+export function pinnedLine(row, now = Date.now(), { workspaceId = false } = {}) {
+  const head = `${truncate(row.name, 70)} (${row.project})${workspaceId || row.chats.length === 0 ? ` [workspace ${row.id}]` : ""}`;
   if (row.chats.length === 0) return `${head}: no active chat`;
-  if (row.chats.length === 1) return `${head}: ${chatState(row.chats[0])}, ${ago(row.chats[0].updatedAt, now)}`;
-  return `${head}: ${row.chats.length} chats: ${row.chats.map((c) => `${truncate(c.title, 50)}, ${chatState(c)}, ${ago(c.updatedAt, now)}`).join("; ")}`;
+  if (row.chats.length === 1) {
+    const [chat] = row.chats;
+    // A row named like its project or folder says nothing of its chat, which then goes by its title.
+    const name = normalize(chatName(chat)) === normalize(truncate(row.name, 70)) ? "" : `chat "${chatName(chat)}", `;
+    return `${head}: ${name}${chatState(chat)}, ${ago(chat.updatedAt, now)} [id ${chat.id}]`;
+  }
+  return `${head}: ${row.chats.length} chats: ${row.chats.map((c) => `${chatName(c)}, ${chatState(c)}, ${ago(c.updatedAt, now)} [id ${c.id}]`).join("; ")}`;
 }
 
 // list_pinned_chats' answer over the pinned rows of its scope (a project, or "all projects"), latest
@@ -465,7 +487,7 @@ export function pinnedResult(rows, { scope, query, now = Date.now() }) {
     some_words: `No pinned chat${where} has every word of "${query}"; the closest ${n}:`,
     none: `No pinned chat${where} has the words of "${query}". All ${n} pinned${where}, latest pin first; the user may have said a name in another language or spelling:`,
   }[found.match] ?? `${n} pinned${where}, latest pin first:`;
-  const hint = "The data carries each chat's id: pass it to the next tool. If the user meant one and several fit, ask which.";
+  const hint = "If the user meant one and several fit, ask which.";
   return { text: [head, ...found.rows.map((row) => pinnedLine(row, now)), hint].join("\n"), data };
 }
 
@@ -493,11 +515,11 @@ const PIN_DONE = new Set(["pinned", "unpinned"]);
 // the other chats of its row along. chat is the chat the user named, if they named one; row is null
 // when the chat has no row to pin: it is archived, or Paseo shows no row for it.
 export function pinResult({ action, outcome, row = null, chat = null, now = Date.now() }) {
-  const named = chat ? `${truncate(chat.title, 70)} (${chat.project})` : `${truncate(row.name, 70)} (${row.project})`;
-  // The row's own name, where it is not the chat's title: what the sidebar shows.
-  const rowName = row && chat && ![normalize(chat.title), normalize(chat.project)].includes(normalize(row.name)) ? ` "${truncate(row.name, 70)}"` : "";
+  const named = chat ? `${chatName(chat)} (${chat.project}) [id ${chat.id}]` : `${truncate(row.name, 70)} (${row.project}) [workspace ${row.id}]`;
+  // The row's own name, where the chat goes by another: what the sidebar shows.
+  const rowName = row && chat && ![chatName(chat), chat.title, chat.project].map(normalize).includes(normalize(truncate(row.name, 70))) ? ` "${truncate(row.name, 70)}"` : "";
   const others = row ? row.chats.filter((c) => c.id !== chat?.id) : [];
-  const titles = others.map((c) => truncate(c.title, 70)).join("; ");
+  const titles = others.map(namedChat).join("; ");
   let holds = "";
   if (row && chat && others.length) holds = ` Paseo pins the whole row, so ${others.length === 1 ? "its other chat goes" : `its ${others.length} other chats go`} with it: ${titles}.`;
   if (row && !chat) holds = others.length ? ` The row holds: ${titles}.` : " The row holds no active chat.";
@@ -506,7 +528,7 @@ export function pinResult({ action, outcome, row = null, chat = null, now = Date
     unpinned: `Unpinned ${named}: its row${rowName} left the Pinned section of Paseo's sidebar.${holds}`,
     already_pinned: `${named} is already pinned, since ${ago(row?.pinnedAt, now)}; nothing changed.`,
     not_pinned: `${named} is not pinned; nothing changed.`,
-    archived: `Nothing changed: ${named} is archived, so it is not in Paseo's sidebar.${action === "unpin" ? " If a pinned row is left from it, list_pinned_chats gives that row's workspace_id to unpin it." : ""}`,
+    archived: `Nothing changed: ${named} is archived, so it is not in Paseo's sidebar.${action === "unpin" ? " If a pinned row is left from it, list_pinned_chats gives that row's [workspace …] to unpin it." : ""}`,
     no_row: `Nothing changed: Paseo's sidebar shows no row for ${named}.`,
   }[outcome];
   return {
@@ -526,7 +548,7 @@ export function pinResult({ action, outcome, row = null, chat = null, now = Date
 // pin_chat's answer to a workspace_id that names no row of Paseo's sidebar.
 export function rowQuestion(workspaceId) {
   return {
-    text: `No row of Paseo's sidebar has the workspace id "${workspaceId}", so nothing was done. It may have been archived; list_pinned_chats gives each pinned row's workspace_id.`,
+    text: `No row of Paseo's sidebar has the workspace id "${workspaceId}", so nothing was done. It may have been archived; list_pinned_chats shows the pinned rows as they are now.`,
     data: { needs_clarification: { kind: "workspace", query: String(workspaceId ?? ""), candidates: [] } },
   };
 }
@@ -577,12 +599,12 @@ export function rowsQuestion(query, reason, rows, { now = Date.now(), tool = "st
   const ask =
     reason === "no_match"
       ? `The most recent workspaces follow; the user may have said a name in another language or spelling. ${ROW_TOOLS[tool].orElse}`
-      : 'Ask the user which one, naming what tells them apart. Pick one yourself (call again with its workspace_id) only if the user\'s words pick it or this conversation already used exactly that workspace:';
+      : 'Ask the user which one, naming what tells them apart. Pick one yourself (call again with its [workspace …]) only if the user\'s words pick it or this conversation already used exactly that workspace:';
   return {
     text: [
       `${ROW_QUESTIONS[reason](query, rows.length)}, so ${ROW_TOOLS[tool].undone}.`,
       ask,
-      ...shown.map((row) => `- ${pinnedLine(row, now)}`),
+      ...shown.map((row) => `- ${pinnedLine(row, now, { workspaceId: true })}`),
       rows.length > shown.length && reason !== "no_match" ? `… and ${rows.length - shown.length} more; a fuller name narrows it down.` : null,
     ]
       .filter(Boolean)
@@ -615,9 +637,9 @@ export function chatRenameResult({ outcome, chat, name, shown = chat.title, erro
   const old = truncate(chat.title, 70);
   const row = chat.workspace && chat.workspace !== name ? ` Its row in the sidebar keeps the name "${truncate(chat.workspace, 70)}": that is the workspace's name, and rename_workspace changes it.` : "";
   const text = {
-    renamed: `Renamed the chat "${old}" to "${truncate(shown, 70)}" (${chat.project}). Paseo shows the new name now.${row}`,
-    unchanged: `The chat is already named "${old}" (${chat.project}); nothing changed.`,
-    archived: `Nothing changed: "${old}" (${chat.project}) is archived. Tell the user.`,
+    renamed: `Renamed the chat "${old}" to "${truncate(shown, 70)}" (${chat.project}) [id ${chat.id}]. Paseo shows the new name now.${row}`,
+    unchanged: `The chat is already named "${old}" (${chat.project}) [id ${chat.id}]; nothing changed.`,
+    archived: `Nothing changed: "${old}" (${chat.project}) [id ${chat.id}] is archived. Tell the user.`,
     error: renameFailure(error, shown),
   }[outcome];
   return {
@@ -644,8 +666,8 @@ export function workspaceRenameResult({ outcome, row, name, after = null, error 
     after?.chats.length > 1 ? ` Its ${after.chats.length} chats keep their own names.` : "",
   ].join("");
   const text = {
-    renamed: `Renamed the workspace "${old}" to "${truncate(name, 70)}" (${row.project}). Paseo's sidebar shows the new name now.${kept}`,
-    unchanged: `The workspace is already named "${old}" (${row.project}); nothing changed.`,
+    renamed: `Renamed the workspace "${old}" to "${truncate(name, 70)}" (${row.project}) [workspace ${row.id}]. Paseo's sidebar shows the new name now.${kept}`,
+    unchanged: `The workspace is already named "${old}" (${row.project}) [workspace ${row.id}]; nothing changed.`,
     error: renameFailure(error, shown),
   }[outcome];
   return {
@@ -760,10 +782,10 @@ const SKIP_REASONS = {
   error: "could not be read",
 };
 
-// show_images in words to be spoken: which chat, which turn, what is on the screen and what could
-// not be shown. Never paths or ids.
+// show_images in words to be spoken: which chat (with its id), which turn, what is on the screen and
+// what could not be shown. Never paths.
 export function imagesText({ chat, turn, found, shown, skipped }) {
-  const where = `${truncate(chat.title, 70)} (${chat.project})`;
+  const where = `${chatName(chat)} (${chat.project}) [id ${chat.id}]`;
   if (found === 0) return `No images in ${turn ? `turn ${turn} of ` : "the latest turns of "}${where}.`;
   const lines = [];
   if (shown.length > 0) {
@@ -977,18 +999,18 @@ function unlistedLine({ offset, next_offset: next, subagents, subagents_running:
 
 export function activityText(activity) {
   const { chat } = activity;
+  const named = `${chat.name} (${chat.project}) [id ${chat.id}]`;
   const head = activity.working
-    ? `${chat.title} (${chat.project}) is working${activity.turn_elapsed ? `, ${activity.turn_elapsed} into the turn` : ""}${activity.current_step ? `: ${activity.current_step}` : ""}.`
-    : `${chat.title} (${chat.project}) is not working now: ${chat.state}, ${chat.updated_ago}.`;
+    ? `${named} is working${activity.turn_elapsed ? `, ${activity.turn_elapsed} into the turn` : ""}${activity.current_step ? `: ${activity.current_step}` : ""}.`
+    : `${named} is not working now: ${chat.state}, ${chat.updated_ago}.`;
   const context = contextLine(chat.context);
+  const isCut = (s) => s.result && (s.result_truncated || s.result.trim().length > RESULT_SPOKEN);
   // Before the list, so it stays when the answer is cut to max_chars.
-  const cut = activity.subagents.some((s) => s.result && (s.result_truncated || s.result.trim().length > RESULT_SPOKEN))
-    ? "Results are cut here: read_message with a subagent's result_id reads its whole final message."
-    : null;
+  const cut = activity.subagents.some(isCut) ? "Results are cut here: read_message with the message_id on a subagent's line reads its whole final message." : null;
   const lines = activity.subagents.map((s) =>
     s.status === "running"
       ? `- ${s.title} (${runtimeLabel(s)}) "${truncate(s.task, 80)}": running for ${s.elapsed}${s.current_step ? `, now ${s.current_step}` : ""}.`
-      : `- ${s.title} (${runtimeLabel(s)}) "${truncate(s.task, 80)}": ${s.status} after ${s.elapsed}${s.result ? `. Result: ${truncate(s.result, RESULT_SPOKEN)}` : "."}`,
+      : `- ${s.title} (${runtimeLabel(s)}) "${truncate(s.task, 80)}": ${s.status} after ${s.elapsed}${s.result ? `. Result: ${truncate(s.result, RESULT_SPOKEN)}` : "."}${isCut(s) ? ` [message_id ${s.result_id}]` : ""}`,
   );
   return [head, context, cut, unlistedLine(activity), ...lines].filter(Boolean).join("\n");
 }

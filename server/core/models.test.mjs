@@ -252,7 +252,7 @@ test("startChatOn starts a Codex chat on the model asked for, with the defaults 
     thinkingOptionId: "max",
     labels: { source: "god-mode" },
   });
-  assert.match(result.text, /^Started a new chat in god-mode-models \(Codex, GPT-6\.1-Sol, thinking max, mode Auto-review\); the task arrived\. Do not start it again\./);
+  assert.match(result.text, /^Started a new chat \[id [0-9a-f-]+\] in god-mode-models \(Codex, GPT-6\.1-Sol, thinking max, mode Auto-review\); the task arrived\. Do not start it again\./);
   assert.deepEqual(
     { provider: result.data.provider, model: result.data.model, thinking: result.data.thinking, mode: result.data.mode, outcome: result.data.outcome, delivered: result.data.delivered },
     { provider: "codex", model: "gpt-6.1-sol", thinking: "max", mode: "auto-review", outcome: "not_waiting", delivered: true },

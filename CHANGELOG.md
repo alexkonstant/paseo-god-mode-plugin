@@ -6,6 +6,34 @@ the MCP core behind it (up to 0.20 also the ChatGPT Site it published). It follo
 [Keep a Changelog](https://keepachangelog.com). Each `## [X.Y.Z]` section becomes the notes of the
 GitHub release vX.Y.Z.
 
+## [1.1.0] - 2026-11-16
+
+Claude reads only the text of an answer, and the ids the next call needs were only in the structured
+data. After `start_chat` it could not tell which chat it had started and found it again by its cut
+title, it saw the pinned row under another name than the chat, and it could neither answer an agent's
+questions nor confirm a command that asks first. Every id the next call takes is in the text now.
+
+### Added
+
+- **Ids in the text**, in brackets after what they name: `[id …]` after every chat, whole;
+  `[workspace …]` after a sidebar row no chat stands for; `[message_id …]` on a search match and a cut
+  subagent result; `[request …]` on a request that asks questions; `[confirmation …]` on a slash
+  command or plugin action that asks first. The rules say to pass them and never say them.
+- **A chat's id names its workspace.** `start_chat`'s `workspace` and `rename_workspace` take the id of
+  a chat in the workspace, whole or its start.
+- **`name` on every chat**: what Paseo's sidebar calls it.
+
+### Changed
+
+- **Chats go by their sidebar names.** A chat alone in its sidebar row is named by the row's title, the
+  name the user sees, often a summary Paseo wrote; otherwise by its own title. `pin_chat` and
+  `list_pinned_chats` no longer call one chat by two names.
+- **States read as done:** `new reply` is `finished, unread reply`, and `idle` is `finished`.
+
+### Fixed
+
+- The answers said "the data carries each chat's id", which Claude never saw.
+
 ## [1.0.1] - 2026-11-16
 
 ### Fixed

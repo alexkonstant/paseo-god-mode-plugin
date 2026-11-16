@@ -222,7 +222,7 @@ test("read_chat marks a short message whole and adds nothing to its text", async
   const read = await readChatOn(chat, { chat: "55611" });
   const t = read.data.turns[0];
   assert.deepEqual([t.user_text, t.user_chars, t.user_text_truncated, t.agent_text, t.agent_chars, t.agent_text_truncated], ["is the relay up?", 16, false, "The relay is up.", 16, false]);
-  assert.match(read.text, /^55611 Workspace \(seks\): idle, [^\n]+\nTurn 1 of 1, counted from the latest\.\nUser asked: is the relay up\?\nAgent replied: The relay is up\.$/);
+  assert.match(read.text, /^55611 Workspace \(seks\): finished, [^\n]+ \[id [0-9a-f-]+\]\nTurn 1 of 1, counted from the latest\.\nUser asked: is the relay up\?\nAgent replied: The relay is up\.$/);
 });
 
 test("read_chat says when the agent's last message was cut to fit, and when earlier ones were left out", async () => {
@@ -358,7 +358,7 @@ test("an agent's message is read whole, by turn and by its number from the last"
   const last = await readMessageOn(chat, { chat: "55611" });
   assert.deepEqual([last.data.role, last.data.message, last.data.agent_messages, last.data.total_chars, last.data.truncated], ["agent", 1, 3, 6000, false], "a message of exactly a page is whole");
   assert.equal(last.data.text, final);
-  assert.match(last.text.slice(0, 200), /^55611 Workspace \(seks\): idle, [^\n]+\nThe agent's last message, turn 1 of 2 counted from the latest: all 6000 characters\.\n\n\[0\]/);
+  assert.match(last.text.slice(0, 200), /^55611 Workspace \(seks\): finished, [^\n]+ \[id [0-9a-f-]+\]\nThe agent's last message, turn 1 of 2 counted from the latest: all 6000 characters\.\n\n\[0\]/);
   const middle = await readMessageOn(chat, { chat: "55611", message: 2 });
   assert.equal(middle.data.text, "second message");
   assert.deepEqual([middle.data.message, middle.data.agent_messages], [2, 3]);
@@ -388,7 +388,7 @@ test("a turn the agent has not answered yet, and a turn that does not exist, say
   const waiting = await readMessageOn(chat, { chat: "55611" });
   assert.equal(waiting.data.missing, "The agent has not written a message in turn 1 yet.");
   assert.equal(waiting.data.total_turns, 2);
-  assert.match(waiting.text, /idle, [^\n]+\nThe agent has not written a message in turn 1 yet\.$/);
+  assert.match(waiting.text, /finished, [^\n]+ \[id [0-9a-f-]+\]\nThe agent has not written a message in turn 1 yet\.$/);
   const user2 = await readMessageOn(chat, { chat: "55611", role: "user" });
   assert.equal(user2.data.text, "work on it", "its own message is there all the same");
   const far = await readMessageOn(chat, { chat: "55611", turn: 9, role: "user" });
@@ -651,7 +651,7 @@ test("a search match carries the id of its message, and read_message reads that 
   assert.equal((await readChatOn(chat, { chat: ID, turn: 2 })).data.turns[0].user_message_id, "user-10");
   // The search text keeps its lines as they were.
   assert.match(found.text, /^"Развилка 7\.16" found in 1 of 1 chat\(s\) searched:\nResearch ChatGPT reminders read-only architecture \(voxbridge\), turn 2 \(assistant\): /);
-  assert.doesNotMatch(found.text, /agent-17/);
+  assert.match(found.text, /, message_id agent-17\]$/m, "the message's id, for read_message");
 });
 
 test("read_chat names each turn's messages, and a turn with no reply yet has no agent message", async () => {
@@ -730,7 +730,7 @@ test("view thinking: 37 086 characters of thinking in 39 parts say they are cut;
   const whole = await readWhole(chat, t.thinking_id);
   assert.equal(whole.text, joined(parts), "every part, in order, as read_chat joins them");
   assert.equal(whole.role, "thinking");
-  assert.match(whole.last.text, /^55611 Workspace \(seks\): idle, [^\n]+\nThe agent's thinking, turn 2 of 2 counted from the latest: \d+ of 37086 characters/);
+  assert.match(whole.last.text, /^55611 Workspace \(seks\): finished, [^\n]+ \[id [0-9a-f-]+\]\nThe agent's thinking, turn 2 of 2 counted from the latest: \d+ of 37086 characters/);
   const none = await readChatOn(chat, { chat: ID, view: "thinking" });
   assert.equal(none.data.turns[0].thinking_id, undefined, "a turn with no thinking has nothing to read");
   assert.equal((await readMessageOn(chat, { chat: ID, id: "thinking-11" })).data.missing, "The chat has no message thinking-11.", "only a turn's start names its thinking");
@@ -763,11 +763,11 @@ test("read_activity: a subagent's 52 329-character final message is cut at 300 a
   assert.ok(first.result.length <= 302 && first.result.endsWith(" …"));
   assert.equal(first.result_id, "subagent-toolu_01TaARTVXCQjvZeqWfVXKADD");
   assert.deepEqual([second.result, second.result_id], [null, "subagent-toolu_016G5iV7eJsJMVEBAtNAqPnP"]);
-  assert.match(activity.text, /^[^\n]+\nResults are cut here: read_message with a subagent's result_id reads its whole final message\.\n- general-purpose/);
+  assert.match(activity.text, /^[^\n]+\nResults are cut here: read_message with the message_id on a subagent's line reads its whole final message\.\n- general-purpose/);
   const whole = await readWhole(chat, first.result_id);
   assert.equal(whole.text, report);
   assert.equal(whole.role, "subagent");
-  assert.match(whole.last.text, /^55611 Workspace \(seks\): idle, [^\n]+\nThe last message of subagent "general-purpose": \d+ of 52329 characters, offset \d+ to 52329\./);
+  assert.match(whole.last.text, /^55611 Workspace \(seks\): finished, [^\n]+ \[id [0-9a-f-]+\]\nThe last message of subagent "general-purpose": \d+ of 52329 characters, offset \d+ to 52329\./);
   assert.equal((await readWhole(chat, second.result_id)).text, deep, "found by reading its timeline further back");
   assert.equal((await readMessageOn(chat, { chat: ID, id: "subagent-toolu_nobody" })).data.missing, "The chat has no subagent subagent-toolu_nobody.");
 });
