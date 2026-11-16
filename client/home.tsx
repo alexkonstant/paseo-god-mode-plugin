@@ -17,8 +17,8 @@ const ASSISTANTS: Record<AssistantName, { page: string; steps: string }> = {
     steps: "Add custom connector → name it God Mode → paste the address → Add → Connect. When it asks for a code, copy it from here.",
   },
   ChatGPT: {
-    page: "https://chatgpt.com/",
-    steps: "Plugins → Add → Add custom MCP server → name it God Mode → Server URL: paste the address → OAuth → Create. When it asks for a code, copy it from here.",
+    page: "https://chatgpt.com/plugins",
+    steps: "Add → Add custom MCP server → name it God Mode → Server URL: paste the address → OAuth → Create. When it asks for a code, copy it from here.",
   },
 };
 
