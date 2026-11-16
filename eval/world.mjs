@@ -268,7 +268,7 @@ export function createWorld(now = Date.now()) {
           end: ago(7 * 60),
           user: "Исследуй, почему картинки из чатов Paseo не доходят до ChatGPT через God Mode.",
           agent: ["Путь на стороне Paseo разобрал целиком, место потери нашёл: сайт не читает файлы картинок. Предлагаю show_images с виджетом. Жду решения."],
-          calls: [read("gpt-site/core/paseo.mjs")],
+          calls: [read("core/paseo.mjs")],
         },
       ],
     }),

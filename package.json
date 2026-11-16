@@ -5,10 +5,14 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"server/**/*.test.ts\" \"shared/**/*.test.ts\"",
-    "check": "npm run typecheck && npm test && npm --prefix gpt-site run check",
+    "test": "node --test \"server/**/*.test.ts\" \"shared/**/*.test.ts\" \"core/*.test.mjs\"",
+    "check": "npm run typecheck && npm test",
     "preversion": "npm run check",
-    "version": "node scripts/sync-version.mjs && git add shared/version.ts gpt-site/core/version.mjs gpt-site/package.json gpt-site/package-lock.json"
+    "version": "node scripts/sync-version.mjs && git add shared/version.ts core/version.mjs"
+  },
+  "dependencies": {
+    "@getpaseo/client": "0.11.4",
+    "@getpaseo/protocol": "0.11.4"
   },
   "devDependencies": {
     "@getpaseo/plugin": "^0.11.2",

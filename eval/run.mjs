@@ -1,5 +1,5 @@
 // Runs the eval: every case through `codex exec` against the stub, per variant. baseline is
-// gpt-site/core at a git tag (--baseline-ref, default v0.5.0), current is gpt-site/core as it is.
+// core at a git tag (--baseline-ref, default v0.5.0), current is core as it is.
 //
 //   node eval/run.mjs --out after --variants current --filter '^(core|w)\.' --parallel 4
 //
@@ -62,8 +62,16 @@ function extractBaseline(ref) {
   const stamp = join(dir, ".ref");
   if (existsSync(stamp) && readFileSync(stamp, "utf8") === ref) return;
   mkdirSync(dir, { recursive: true });
+  // Up to 0.20 the core lived in gpt-site/core; from 1.0 it is core/.
+  const show = (path) => execFileSync("git", ["-C", SITE, "show", `${ref}:${path}`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   for (const file of ["mcp.mjs", "text.mjs", "build.mjs", "version.mjs"]) {
-    writeFileSync(join(dir, file), execFileSync("git", ["-C", SITE, "show", `${ref}:gpt-site/core/${file}`], { encoding: "utf8" }));
+    let text;
+    try {
+      text = show(`core/${file}`);
+    } catch {
+      text = show(`gpt-site/core/${file}`);
+    }
+    writeFileSync(join(dir, file), text);
   }
   // The eval never loads the real paseo.mjs: it opens relay connections.
   writeFileSync(join(dir, "paseo.mjs"), "export class PaseoOffline extends Error {}\n");
