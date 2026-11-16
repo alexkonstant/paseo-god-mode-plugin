@@ -1,31 +1,31 @@
 // Runs the God Mode operations against the real Paseo daemon on this Mac, the way the plugin's
 // gateway does. For trying changes before a reload.
 //
-//   node core/probe.mjs overview [--hours 12]
-//   node core/probe.mjs chats [--project P] [--status running|waiting|new|all] [--query Q] [--archived]
-//   node core/probe.mjs pinned [--project P] [--query Q]
-//   node core/probe.mjs read <chat> [--view text|commands|thinking] [--turn 1] [--turns 3] [--max N]
-//   node core/probe.mjs message <chat> [--role user|agent] [--turn 1] [--message N] [--id ID] [--mode head|tail|full] [--size N] [--offset N]
-//   node core/probe.mjs activity [chat] [--max N] [--offset N]
-//   node core/probe.mjs images [chat] [--turn N] [--image N] [--count N] [--save DIR]
-//   node core/probe.mjs search <query…> [--project P] [--chat C] [--archived] [--scan 20] [--limit 10]
-//   node core/probe.mjs models [provider]
-//   node core/probe.mjs start <project|-> <prompt…> [--workspace W] [--provider P] [--model M] [--thinking T] [--mode M]
-//   node core/probe.mjs set <chat> [--model M] [--thinking T]
-//   node core/probe.mjs send <chat> <text…> [--if-busy steer|interrupt]
-//   node core/probe.mjs approve <chat> allow|deny [--request N]
-//   node core/probe.mjs request <chat>
-//   node core/probe.mjs answer <chat> <request id> --answers JSON
-//   node core/probe.mjs stop <chat>
-//   node core/probe.mjs archive <chat>
-//   node core/probe.mjs pin|unpin <chat> | --workspace W
-//   node core/probe.mjs rename <chat> <new name…>
-//   node core/probe.mjs rename-workspace <workspace> <new name…>
-//   node core/probe.mjs plugins
-//   node core/probe.mjs plugin-read <plugin> [operation] [--args JSON]
-//   node core/probe.mjs plugin-act <plugin> <operation> [--args JSON] [--confirm TOKEN]
-//   node core/probe.mjs commands <chat> [--query Q] [--limit 60]
-//   node core/probe.mjs command <chat> <name> [args…] [--if-busy interrupt] [--confirm TOKEN]
+//   node server/core/probe.mjs overview [--hours 12]
+//   node server/core/probe.mjs chats [--project P] [--status running|waiting|new|all] [--query Q] [--archived]
+//   node server/core/probe.mjs pinned [--project P] [--query Q]
+//   node server/core/probe.mjs read <chat> [--view text|commands|thinking] [--turn 1] [--turns 3] [--max N]
+//   node server/core/probe.mjs message <chat> [--role user|agent] [--turn 1] [--message N] [--id ID] [--mode head|tail|full] [--size N] [--offset N]
+//   node server/core/probe.mjs activity [chat] [--max N] [--offset N]
+//   node server/core/probe.mjs images [chat] [--turn N] [--image N] [--count N] [--save DIR]
+//   node server/core/probe.mjs search <query…> [--project P] [--chat C] [--archived] [--scan 20] [--limit 10]
+//   node server/core/probe.mjs models [provider]
+//   node server/core/probe.mjs start <project|-> <prompt…> [--workspace W] [--provider P] [--model M] [--thinking T] [--mode M]
+//   node server/core/probe.mjs set <chat> [--model M] [--thinking T]
+//   node server/core/probe.mjs send <chat> <text…> [--if-busy steer|interrupt]
+//   node server/core/probe.mjs approve <chat> allow|deny [--request N]
+//   node server/core/probe.mjs request <chat>
+//   node server/core/probe.mjs answer <chat> <request id> --answers JSON
+//   node server/core/probe.mjs stop <chat>
+//   node server/core/probe.mjs archive <chat>
+//   node server/core/probe.mjs pin|unpin <chat> | --workspace W
+//   node server/core/probe.mjs rename <chat> <new name…>
+//   node server/core/probe.mjs rename-workspace <workspace> <new name…>
+//   node server/core/probe.mjs plugins
+//   node server/core/probe.mjs plugin-read <plugin> [operation] [--args JSON]
+//   node server/core/probe.mjs plugin-act <plugin> <operation> [--args JSON] [--confirm TOKEN]
+//   node server/core/probe.mjs commands <chat> [--query Q] [--limit 60]
+//   node server/core/probe.mjs command <chat> <name> [args…] [--if-busy interrupt] [--confirm TOKEN]
 //
 // --json prints the structured data instead of the text; images print their size, never their
 // bytes, and --save writes them to DIR to look at. It connects with the daemon's local credential

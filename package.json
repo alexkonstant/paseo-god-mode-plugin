@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"server/**/*.test.ts\" \"shared/**/*.test.ts\" \"core/*.test.mjs\"",
+    "test": "node --test \"server/**/*.test.ts\" \"shared/**/*.test.ts\" \"server/core/*.test.mjs\"",
     "check": "npm run typecheck && npm test",
     "preversion": "npm run check",
-    "version": "node scripts/sync-version.mjs && git add shared/version.ts core/version.mjs"
+    "version": "node scripts/sync-version.mjs && git add shared/version.ts server/core/version.mjs"
   },
   "dependencies": {
     "@getpaseo/client": "0.11.4",

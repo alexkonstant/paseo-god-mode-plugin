@@ -1,5 +1,5 @@
 // The plugin and its MCP core share one version: the "version" in package.json, which
-// `npm version` copies here and into core/version.mjs (scripts/sync-version.mjs); a test keeps them equal.
+// `npm version` copies here and into server/core/version.mjs (scripts/sync-version.mjs); a test keeps them equal.
 // It continues paseo-remote's numbering (0.3.1 was its last release) because ChatGPT refreshes a
 // Site plugin's tools only when this version moves on.
 export const VERSION = "0.20.0";

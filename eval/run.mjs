@@ -25,7 +25,7 @@ const NODE = process.execPath;
 const WORKDIR = join(HERE, "workdir");
 const VARIANTS = {
   baseline: { coreDir: join(HERE, ".baseline", "core") },
-  current: { coreDir: join(SITE, "core") },
+  current: { coreDir: join(SITE, "server", "core") },
 };
 const DISABLED = [
   "apps", "plugins", "remote_plugin", "tool_suggest", "shell_tool", "unified_exec", "multi_agent", "image_generation",
@@ -62,12 +62,12 @@ function extractBaseline(ref) {
   const stamp = join(dir, ".ref");
   if (existsSync(stamp) && readFileSync(stamp, "utf8") === ref) return;
   mkdirSync(dir, { recursive: true });
-  // Up to 0.20 the core lived in gpt-site/core; from 1.0 it is core/.
+  // Up to 0.20 the core lived in gpt-site/core; from 1.0 it is server/core/.
   const show = (path) => execFileSync("git", ["-C", SITE, "show", `${ref}:${path}`], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   for (const file of ["mcp.mjs", "text.mjs", "build.mjs", "version.mjs"]) {
     let text;
     try {
-      text = show(`core/${file}`);
+      text = show(`server/core/${file}`);
     } catch {
       text = show(`gpt-site/core/${file}`);
     }
