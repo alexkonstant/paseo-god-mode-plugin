@@ -129,7 +129,7 @@ export const IMAGES_WIDGET_HTML = `<!doctype html>
     });
     request("ui/update-model-context", { content: content })
       .then(function () {
-        document.getElementById("shared").textContent = "shared with ChatGPT";
+        document.getElementById("shared").textContent = "shared with the assistant";
       })
       .catch(function () {});
   }

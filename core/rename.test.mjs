@@ -301,12 +301,11 @@ test("rename_chat takes only what Paseo shows afterwards as the outcome, also wh
 
 test("the MCP handler reaches the same operations with the name it was given, trimmed", async () => {
   const paseo = daemon();
-  const url = "https://app.paseo.sh/#offer=secret";
   const ops = {
-    renameChat: (_url, args) => renameChatOn(paseo, args),
-    renameWorkspace: (_url, args) => renameWorkspaceOn(paseo, args),
+    renameChat: (_target, args) => renameChatOn(paseo, args),
+    renameWorkspace: (_target, args) => renameWorkspaceOn(paseo, args),
   };
-  const handle = createMcpHandler({ config: readConfig({ PASEO_PAIRING_URL: url }), ops });
+  const handle = createMcpHandler({ config: readConfig({ daemon: { url: () => "ws://127.0.0.1:6767/ws", credential: () => null, secret: "test" } }), ops });
   const call = (name, args) => handle({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
   const chat = await call("rename_chat", { chat: OPEN_CHAT, new_name: "  Spoken name  " });
   assert.equal(chat.result.structuredContent.new_name, "Spoken name");

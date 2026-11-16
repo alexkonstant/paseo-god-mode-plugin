@@ -242,7 +242,6 @@ test("startChatOn starts a Codex chat on the model asked for, with the defaults 
     prompt: "Reply OK.",
     model: "GPT-6.1-Sol",
     defaults: { thinking: "max", mode: "bypassPermissions" },
-    waitSeconds: 5,
   });
   assert.deepEqual(client.calls.find((c) => c[0] === "snapshot")[1], { cwd: PROJECT.projectRootPath }, "the project's own catalog");
   assert.deepEqual(client.calls.find((c) => c[0] === "create")[1], {
@@ -256,7 +255,7 @@ test("startChatOn starts a Codex chat on the model asked for, with the defaults 
   assert.match(result.text, /^Started a new chat in god-mode-models \(Codex, GPT-6\.1-Sol, thinking max, mode Auto-review\); the task arrived\. Do not start it again\./);
   assert.deepEqual(
     { provider: result.data.provider, model: result.data.model, thinking: result.data.thinking, mode: result.data.mode, outcome: result.data.outcome, delivered: result.data.delivered },
-    { provider: "codex", model: "gpt-6.1-sol", thinking: "max", mode: "auto-review", outcome: "replied", delivered: true },
+    { provider: "codex", model: "gpt-6.1-sol", thinking: "max", mode: "auto-review", outcome: "not_waiting", delivered: true },
   );
 });
 

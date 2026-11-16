@@ -110,7 +110,7 @@ test("read_approval gives every question with its numbered options, the recommen
   assert.match(plain.text, /\nRequest 1: run: npm publish \(allow or deny with answer_approval\)$/);
 });
 
-test("answer_questions sends the user's choices as Paseo's form does, then tells what the agent did", async () => {
+test("answer_questions sends the user's choices as Paseo's form does, and does not wait for the agent", async () => {
   const daemon = fakeDaemon([ASKING]);
   const result = await answerQuestionsOn(daemon, {
     chat: ASKING.id,
@@ -119,7 +119,6 @@ test("answer_questions sends the user's choices as Paseo's form does, then tells
       { question: "1", options: ["1"] },
       { question: "2", options: ["2"] },
     ],
-    waitSeconds: 5,
   });
   assert.deepEqual(daemon.log.answered, [
     {
@@ -129,8 +128,7 @@ test("answer_questions sends the user's choices as Paseo's form does, then tells
     },
   ]);
   assert.equal(result.data.delivered, true);
-  assert.equal(result.data.outcome, "replied");
-  assert.equal(result.data.reply, "Releasing 0.4 now.");
+  assert.equal(result.data.outcome, "not_waiting");
   assert.deepEqual(result.data.answered.map((a) => [a.header, a.answer]), [
     ["Release", "Continue (Recommended)"],
     ["Daemon", "Install from the tag"],
@@ -158,16 +156,16 @@ test("a request that is gone, asks no questions or asks for a secret gets nothin
   const plain = await answerQuestionsOn(daemon, { chat: PLAIN.id, request: "perm-1", answers });
   assert.deepEqual([plain.data.outcome, plain.data.delivered], ["not_questions", false]);
   const secret = await answerQuestionsOn(daemon, { chat: KEY_CHAT.id, request: SECRET.id, answers: [{ question: "1", text: "sk-…" }] });
-  assert.deepEqual([secret.data.outcome, secret.data.reason], ["unsupported", "it asks for a secret, which must not go through ChatGPT"]);
+  assert.deepEqual([secret.data.outcome, secret.data.reason], ["unsupported", "it asks for a secret, which must not go through God Mode"]);
   assert.deepEqual(daemon.log.answered, []);
   const read = await readApprovalOn(daemon, { chat: KEY_CHAT.id });
   assert.equal(read.data.requests[0].answer_with, "paseo");
-  assert.match(read.text, /God Mode cannot answer it: it asks for a secret, which must not go through ChatGPT; the user answers it in Paseo\./);
+  assert.match(read.text, /God Mode cannot answer it: it asks for a secret, which must not go through God Mode; the user answers it in Paseo\./);
 });
 
 test("Codex's question: several options go joined by header, which Paseo turns into Codex's answers", async () => {
   const daemon = fakeDaemon([CODEX_CHAT]);
-  await answerQuestionsOn(daemon, { chat: CODEX_CHAT.id, request: CODEX_ASK.id, answers: [{ question: "Scope", options: ["API", "3"] }], waitSeconds: 0 });
+  await answerQuestionsOn(daemon, { chat: CODEX_CHAT.id, request: CODEX_ASK.id, answers: [{ question: "Scope", options: ["API", "3"] }] });
   assert.deepEqual(daemon.log.answered[0].response, { behavior: "allow", updatedInput: { ...CODEX_ASK.input, answers: { Scope: "API, Tests" } } });
 });
 

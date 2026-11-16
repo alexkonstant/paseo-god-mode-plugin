@@ -316,54 +316,7 @@ export function contextLine(context) {
   return `Context window: ${context.percent_used}% used (${tokenCount(context.used_tokens)} of ${tokenCount(context.max_tokens)} tokens).`;
 }
 
-// update_status: the plugin's release status (null when the Mac is unreachable) next to the
-// version this Site was built from.
-export function releaseData(status, siteVersion, build = null) {
-  const job = status?.job ?? null;
-  return {
-    site_version: siteVersion,
-    build,
-    installed_version: status?.installed ?? null,
-    update_available: status ? status.installed !== siteVersion : null,
-    latest_release: status?.latest?.version ?? null,
-    latest_is_newer: status?.latest ? Boolean(status.latest.newer) : null,
-    live_release: status?.live?.versionNumber ?? null,
-    mac_online: Boolean(status),
-    ...(job
-      ? {
-          job: {
-            action: job.action,
-            state: job.state,
-            step: job.step,
-            started_at: job.startedAt,
-            finished_at: job.finishedAt,
-            message: job.result?.message ?? null,
-            error: job.error ? job.error.split("\n")[0] : null,
-          },
-        }
-      : {}),
-  };
-}
-
 const JOB_NAMES = { update: "update", rollback: "rollback", configure: "settings update" };
-
-export function describeRelease(data, now = Date.now()) {
-  if (!data.mac_online) {
-    return `God Mode ${data.site_version} is live. The Mac is offline, so updates cannot be checked or started right now.`;
-  }
-  const job = data.job;
-  const what = JOB_NAMES[job?.action] ?? "update";
-  if (job?.state === "running") return `The ${what} is running: ${job.step}, started ${ago(job.started_at, now)}.`;
-  const lines = [
-    data.update_available
-      ? `God Mode ${data.site_version} is live; the Mac has ${data.installed_version}, so an update is available.`
-      : `God Mode ${data.site_version} is live and up to date with the Mac.`,
-  ];
-  if (data.latest_is_newer) lines.push(`Version ${data.latest_release} is out on GitHub; update the God Mode plugin in Paseo to get it.`);
-  if (job?.state === "succeeded") lines.push(`The last ${what} succeeded${job.message ? `: ${job.message}` : "."}`);
-  else if (job) lines.push(`The last ${what} ${job.state === "interrupted" ? "was interrupted" : "failed"}${job.error ? `: ${job.error}` : "."}`);
-  return lines.join(" ");
-}
 
 export function ago(iso, now = Date.now()) {
   const minutes = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000));
@@ -791,30 +744,6 @@ export function imageHint(turn, count) {
 
 // The most of a reply a write's answer carries.
 export const REPLY_SHOWN = 1500;
-
-// A reply cut to fit, with its whole length and, when it was cut, the line that says so and how to
-// read the rest: it is the agent's last message, which read_message reads whole as turn 1.
-export function replyPart(text) {
-  const reply = truncate(text, REPLY_SHOWN);
-  const truncated = String(text ?? "").trim().length > REPLY_SHOWN;
-  return {
-    reply,
-    data: { reply, reply_chars: charCount(text), reply_truncated: truncated },
-    note: truncated ? `The reply is cut to ${REPLY_SHOWN} of its ${charCount(text)} characters: read_message (turn 1) reads it whole.` : null,
-  };
-}
-
-// The agent's final message after a write, with its images as placeholders and counted.
-export function repliedOutcome(message) {
-  const { text, images } = withImagePlaceholders(message ?? "(no text)");
-  const part = replyPart(text);
-  const lines = [`Agent replied: ${part.reply}`, part.note];
-  if (images.length === 0) return { text: lines.filter(Boolean).join("\n"), data: { outcome: "replied", delivered: true, ...part.data } };
-  return {
-    text: [...lines, `The reply has ${images.length} image(s); show_images puts them on the user's screen.`].filter(Boolean).join("\n"),
-    data: { outcome: "replied", delivered: true, ...part.data, images: images.length },
-  };
-}
 
 export function imageRef(image, cwd) {
   const target = imageTarget(image.source, cwd);

@@ -111,8 +111,8 @@ const CLAUDE = {
   checkpoint: REWIND,
   undo: REWIND,
   heapdump: blocked("It writes a memory dump with the whole conversation and credentials to the Desktop."),
-  bug: blocked("It sends the conversation to Anthropic; not from ChatGPT."),
-  feedback: blocked("It sends the conversation to Anthropic; not from ChatGPT."),
+  bug: blocked("It sends the conversation to Anthropic; not through God Mode."),
+  feedback: blocked("It sends the conversation to Anthropic; not through God Mode."),
   export: blocked("It writes the conversation to a file or the clipboard; ask the agent instead."),
   "workflow-launch-exec": blocked("Internal to Claude Code's cloud workflows."),
   ...each(["model", "effort"], blocked(SWITCH)),
@@ -204,7 +204,7 @@ const CODEX_NOT_HERE = {
   status: "Terminal-only in Codex; read_chat and read_activity tell the chat's state and how full its context is.",
   clear: NEW_CHAT,
   fork: "Paseo does not expose Codex's fork; start_chat opens a new chat.",
-  undo: "Paseo does not expose a Codex rollback to ChatGPT; do it in Paseo on the computer.",
+  undo: "Paseo does not expose a Codex rollback to God Mode; do it in Paseo on the computer.",
   goal: "This chat's Codex runs without goals, so Paseo does not offer /goal here.",
   ...each(
     [
@@ -417,13 +417,6 @@ export function confirmText(entry, { chatTitle, label, args, notes = [], interru
 
 // ---- What a run did ---------------------------------------------------------------------------
 
-// The timeline items after the user message God Mode sent (found by its client message id), or null
-// while that message is not in the timeline yet.
-export function afterCommand(items, messageId) {
-  const at = items.findIndex((item) => item?.type === "user_message" && item.clientMessageId === messageId);
-  return at < 0 ? null : items.slice(at + 1);
-}
-
 const textsOf = (items) => items.filter((i) => i.type === "assistant_message" && String(i.text ?? "").trim()).map((i) => i.text.trim());
 const errorsOf = (items) => items.filter((i) => i.type === "error").map((i) => String(i.message ?? "error"));
 const FAILED = /^(\[Error\]|Failed to |Error:)/i;
@@ -444,48 +437,10 @@ function contextAfterCompaction(item, before, after) {
   return context;
 }
 
-// What one command did, from the items the timeline gained after it and the chat's state:
-// { outcome, settled, reply?, reason?, error?, context?, approval? }. settled=false: the result may
-// still come (a poll keeps going until its deadline).
-//
-// Observed on Claude Code 2.1.296 through Paseo: a done /compact adds compaction items (loading, then
-// completed with preTokens) and Paseo then repeats the previous local output as a reply, which is not
-// this command's; a /compact that cannot run says why ("Not enough messages to compact.") and leaves
-// the loading item open. Codex's /compact (outside any turn) adds the same items, or Paseo's
-// "Failed to compact context: …".
-export function commandResult(entry, { items, status, usageBefore = null, usageAfter = null, approval = null }) {
-  if (entry.compaction) {
-    const done = items.find((i) => i.type === "compaction" && i.status === "completed");
-    if (done) return { outcome: "done", settled: true, context: contextAfterCompaction(done, usageBefore, usageAfter) };
-  }
-  if (!entry.compaction && approval) return { outcome: "waiting_for_approval", settled: true, approval };
-  const said = textsOf(items).join("\n\n");
-  const errors = errorsOf(items);
-  if (status === "error" || errors.length) return { outcome: "error", settled: true, error: truncate(errors.join("; ") || said || "the chat stopped with an error", 300) };
-  if (said && (entry.compaction || entry.outOfBand)) {
-    if (FAILED.test(said)) return { outcome: "error", settled: true, error: truncate(said, 300) };
-    // A compaction that did not happen says why; a command run outside a turn says what it did.
-    return entry.compaction ? { outcome: "refused", settled: true, reason: truncate(said, 300) } : { outcome: "replied", settled: true, reply: said };
-  }
-  if (isBusy(status) || entry.outOfBand) return { outcome: "still_working", settled: false };
-  if (entry.compaction) return { outcome: "error", settled: true, error: "it ended without saying whether the context was compacted (it may have been stopped)" };
-  return { outcome: "replied", settled: true, reply: said };
-}
-
 function tokens(n) {
   if (n < 1000) return String(n);
   if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
   return `${Number((n / 1_000_000).toFixed(1))}M`;
-}
-
-// "context 23k → 2k tokens (0% of 1M)", or what is known of it.
-export function contextChange(context) {
-  if (!context || (context.before_tokens === undefined && context.after_tokens === undefined)) return null;
-  if (context.after_tokens !== undefined && context.before_tokens !== undefined) {
-    const of = context.max_tokens ? ` (${context.percent_used}% of ${tokens(context.max_tokens)})` : "";
-    return `context ${tokens(context.before_tokens)} → ${tokens(context.after_tokens)} tokens${of}`;
-  }
-  return context.before_tokens !== undefined ? `context was ${tokens(context.before_tokens)} tokens` : `context now ${tokens(context.after_tokens)} tokens`;
 }
 
 // read_chat: a done compaction as a line of the turn's text.

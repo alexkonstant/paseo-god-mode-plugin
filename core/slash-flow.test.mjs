@@ -103,7 +103,7 @@ const claudeAnswers = (reply) => (state, text, options) => {
   state.status = "idle";
 };
 
-const run = (client, args) => runSlashCommandOn(client, { chat: ID, secret: SECRET, now: NOW, waitSeconds: 5, pollMs: 5, ...args });
+const run = (client, args) => runSlashCommandOn(client, { chat: ID, secret: SECRET, now: NOW, ...args });
 
 test("list: the chat's own commands, each with what it does and whether God Mode runs it", async () => {
   const client = fakeDaemon({ mode: "bypassPermissions" });
@@ -136,7 +136,7 @@ test("list: an archived chat, a provider Paseo cannot start, and one God Mode do
   assert.match(other.data.reason, /only in Claude Code and Codex chats/);
 });
 
-test("Claude /compact: asks first, then runs as a message Claude Code expands, and tells the context before and after", async () => {
+test("Claude /compact: asks first, then runs as a message Claude Code expands, and does not wait for it", async () => {
   const client = fakeDaemon({ onSend: claudeCompacts });
   const asked = await run(client, { command: "compact", args: "keep the API notes" });
   assert.equal(asked.data.outcome, "needs_confirmation");
@@ -151,11 +151,9 @@ test("Claude /compact: asks first, then runs as a message Claude Code expands, a
   assert.equal(client.state.sent[0].text, "/compact keep the API notes");
   assert.equal(client.state.sent[0].options.activeTurnBehavior, undefined, "an idle chat needs no turn behaviour");
   assert.match(client.state.sent[0].options.messageId, /^[0-9a-f-]{36}$/);
-  assert.equal(done.data.outcome, "done");
+  assert.equal(done.data.outcome, "not_waiting");
   assert.equal(done.data.delivered, true);
-  assert.deepEqual(done.data.context, { before_tokens: 22772, after_tokens: 1755, max_tokens: 1_000_000, percent_used: 0 });
-  assert.match(done.text, /^Ran \/compact keep the API notes in Fleet map: the context was compacted \(context 23k → 2k tokens \(0% of 1M\)\)\. It ran once; never run it again for this request\.$/);
-  assert.doesNotMatch(done.text, /Context Usage/, "the repeated earlier output is not this command's result");
+  assert.match(done.text, /^Sent \/compact keep the API notes to Fleet map; it arrived\. It ran once; never run it again for this request\. Not waiting for the result; offer to check later with read_chat\.$/);
 });
 
 test("a confirmation fits one chat, command, arguments and moment only", async () => {
@@ -164,27 +162,20 @@ test("a confirmation fits one chat, command, arguments and moment only", async (
   const other = await run(client, { command: "compact", args: "something else", confirmation: asked.data.confirmation });
   assert.equal(other.data.outcome, "needs_confirmation");
   assert.match(other.text, /^That confirmation was for something else\./);
-  const late = await runSlashCommandOn(client, { chat: ID, command: "compact", confirmation: asked.data.confirmation, secret: SECRET, now: NOW + 3 * 60_000, waitSeconds: 5, pollMs: 5 });
+  const late = await runSlashCommandOn(client, { chat: ID, command: "compact", confirmation: asked.data.confirmation, secret: SECRET, now: NOW + 3 * 60_000 });
   assert.match(late.text, /^That confirmation expired\./);
   const forged = await run(client, { command: "compact", confirmation: (await issueConfirmation("another secret", { tool: "run_slash_command", chat: ID, command: "/compact", interrupt: false }, NOW)).token });
   assert.equal(forged.data.outcome, "needs_confirmation");
   assert.equal(client.state.sent.length, 0);
 });
 
-test("a low-risk command runs at once and its output comes back; an unclear or unknown name sends nothing", async () => {
+test("a low-risk command is sent at once; an unclear or unknown name sends nothing", async () => {
   const client = fakeDaemon({ onSend: claudeAnswers("## Context Usage\n\n**Tokens:** 22.7k / 1m (2%)") });
   const context = await run(client, { command: "/context" });
-  assert.equal(context.data.outcome, "replied");
+  assert.equal(context.data.outcome, "not_waiting");
   assert.equal(context.data.risk, "low");
-  assert.match(context.data.reply, /^## Context Usage/);
-  assert.match(context.text, /^Ran \/context in Fleet map\. It ran once; never run it again for this request\. Result:\n## Context Usage/);
-  assert.deepEqual([context.data.reply_chars, context.data.reply_truncated], [45, false]);
-  // A long output is cut to 1500 and says so, with the way to all of it.
-  const long = `## Review\n\n${"Строка отчёта с находкой 😀. ".repeat(300)}`;
-  const review = await run(fakeDaemon({ onSend: claudeAnswers(long) }), { command: "/context" });
-  // The chat's text as Paseo gives it, without the trailing space.
-  assert.deepEqual([review.data.reply_truncated, review.data.reply_chars], [true, Array.from(long.trim()).length]);
-  assert.match(review.text, new RegExp(`\\nThe reply is cut to 1500 of its ${Array.from(long.trim()).length} characters: read_message \\(turn 1\\) reads it whole\\.$`));
+  assert.equal(context.data.delivered, true);
+  assert.match(context.text, /^Sent \/context to Fleet map; it arrived\. It ran once; never run it again for this request\. Not waiting for the result; offer to check later with read_chat\.$/);
   const unknown = await run(client, { command: "definitely-not-a-command" });
   assert.equal(unknown.data.needs_clarification.kind, "command");
   assert.match(unknown.text, /No command of Fleet map matches "definitely-not-a-command", so nothing was sent\. Its commands: code-review, context, compact, gm-ping\./);
@@ -229,34 +220,15 @@ test("a working chat holds the command until the user says to interrupt, and the
   const notThatYes = await run(client, { command: "compact", ifBusy: "interrupt", confirmation: idleToken });
   assert.equal(notThatYes.data.outcome, "needs_confirmation", "a yes to compacting is not a yes to interrupting");
   const done = await run(client, { command: "compact", ifBusy: "interrupt", confirmation: asked.data.confirmation });
-  assert.equal(done.data.outcome, "done");
+  assert.equal(done.data.outcome, "not_waiting");
   assert.equal(client.state.sent.length, 1);
   assert.equal(client.state.sent[0].options.activeTurnBehavior, "interrupt");
   const waiting = await run(fakeDaemon({ status: "running", permissions: [{ id: "p1", detail: { type: "shell", command: "rm -rf build" } }] }), { command: "context" });
   assert.match(waiting.text, /is waiting for an approval/);
 });
 
-test("a command that asks for an approval, ends in an error, or is not awaited", async () => {
-  const approving = fakeDaemon({
-    onSend: (state, text, options) => {
-      state.items.push(userMessage(text, options), { type: "tool_call", name: "Bash", status: "running", detail: { type: "shell", command: "make clean" } });
-      state.status = "running";
-      state.permissions = [{ id: "p1", detail: { type: "shell", command: "make clean" } }];
-    },
-  });
-  const asked = await run(approving, { command: "code-review" });
-  assert.equal(asked.data.outcome, "waiting_for_approval");
-  assert.equal(asked.data.approval, "run: make clean");
-  const failing = fakeDaemon({ onSend: (state, text, options) => state.items.push(userMessage(text, options), { type: "error", message: "API overloaded" }) });
-  const failed = await run(failing, { command: "context" });
-  assert.equal(failed.data.outcome, "error");
-  assert.equal(failed.data.delivered, true, "it reached the agent: never run it again");
-  const quick = await run(fakeDaemon({ onSend: claudeAnswers("x") }), { command: "context", waitSeconds: 0 });
-  assert.equal(quick.data.outcome, "not_waiting");
-  assert.equal(quick.data.delivered, true);
-});
 
-test("Codex /compact runs as its thread/compact/start through Paseo, outside any turn; the result is read from the timeline", async () => {
+test("Codex /compact runs as its thread/compact/start through Paseo, outside any turn", async () => {
   // Paseo records the command at once and runs it out of band; the compaction items arrive a moment later.
   const client = fakeDaemon({
     provider: "codex",
@@ -274,24 +246,10 @@ test("Codex /compact runs as its thread/compact/start through Paseo, outside any
   assert.match(asked.data.confirm_text, /\(Codex\): Codex summarises the thread .*thread\/compact\/start/);
   const done = await run(client, { command: "compact", confirmation: asked.data.confirmation });
   assert.equal(client.state.sent[0].text, "/compact");
-  assert.equal(done.data.outcome, "done");
-  assert.deepEqual(done.data.context, { before_tokens: 22684, after_tokens: 1755, max_tokens: 1_000_000, percent_used: 0 });
+  assert.equal(done.data.outcome, "not_waiting");
 });
 
-test("Codex: a compaction still going at the deadline, a failed one, /goal beside a running turn, and review not here", async () => {
-  const slow = fakeDaemon({ provider: "codex", commands: CODEX, onSend: (state, text, options) => state.items.push(userMessage(text, options)) });
-  const token = (await run(slow, { command: "compact" })).data.confirmation;
-  const going = await run(slow, { command: "compact", confirmation: token, waitSeconds: 1 });
-  assert.equal(going.data.outcome, "still_working");
-  assert.match(going.text, /still running \(compacting the context\)\. It ran once; never run it again for this request\. Offer to check later with read_chat; do not poll\./);
-  const failing = fakeDaemon({
-    provider: "codex",
-    commands: CODEX,
-    onSend: (state, text, options) => state.items.push(userMessage(text, options), { type: "assistant_message", text: "Failed to compact context: thread not loaded" }),
-  });
-  const failed = await run(failing, { command: "compact", confirmation: (await run(failing, { command: "compact" })).data.confirmation });
-  assert.equal(failed.data.outcome, "error");
-  assert.match(failed.data.error, /thread not loaded/);
+test("Codex: /goal runs beside a running turn, and review is not here", async () => {
   const goal = fakeDaemon({
     provider: "codex",
     commands: CODEX,
@@ -302,8 +260,7 @@ test("Codex: a compaction still going at the deadline, a failed one, /goal besid
   assert.equal(pausedAsk.data.outcome, "needs_confirmation", "not busy: /goal runs beside the turn");
   assert.doesNotMatch(pausedAsk.data.confirm_text, /stops the chat's current work/);
   const paused = await run(goal, { command: "goal", args: "pause", confirmation: pausedAsk.data.confirmation });
-  assert.equal(paused.data.outcome, "replied");
-  assert.equal(paused.data.reply, "Goal paused.");
+  assert.equal(paused.data.outcome, "not_waiting");
   assert.equal(goal.state.sent[0].options.activeTurnBehavior, undefined, "Paseo runs it out of band; nothing to interrupt");
   const review = await run(fakeDaemon({ provider: "codex", commands: CODEX }), { command: "review" });
   assert.equal(review.data.outcome, "unavailable");

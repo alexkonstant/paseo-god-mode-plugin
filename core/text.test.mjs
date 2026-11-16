@@ -11,7 +11,6 @@ import {
   contextLine,
   contextOf,
   describePermission,
-  describeRelease,
   describeStep,
   describeToolCall,
   duration,
@@ -26,8 +25,6 @@ import {
   pickActive,
   pinnedLine,
   pinnedResult,
-  releaseData,
-  repliedOutcome,
   resolve,
   settleChat,
   withImagePlaceholders,
@@ -190,27 +187,6 @@ test("a chat line is spoken words: title, project, state and age, no id", () => 
   assert.equal(chatLine(chat, now), "Fleet map (proxy): running, 10 min ago");
   assert.equal(chatLine({ ...chat, subagentsRunning: 2 }, now), "Fleet map (proxy): running, 2 subagent(s) working, 10 min ago");
   assert.equal(chatLine({ ...chat, status: "idle", attention: "finished", subagentsRunning: 1 }, now), "Fleet map (proxy): 1 subagent(s) working, 10 min ago");
-});
-
-test("the release status reads as one or two sentences", () => {
-  const now = Date.parse("2026-10-16T19:05:00Z");
-  const status = (job, installed = "0.1.0") => ({ installed, live: { versionNumber: 7 }, job });
-  assert.equal(describeRelease(releaseData(null, "0.1.0"), now), "God Mode 0.1.0 is live. The Mac is offline, so updates cannot be checked or started right now.");
-  assert.equal(describeRelease(releaseData(status(null, "0.1.1"), "0.1.0"), now), "God Mode 0.1.0 is live; the Mac has 0.1.1, so an update is available.");
-  const running = { action: "update", state: "running", step: "Building and testing", startedAt: "2026-10-16T19:01:00Z", finishedAt: null, result: null, error: null };
-  assert.equal(describeRelease(releaseData(status(running), "0.1.0"), now), "The update is running: Building and testing, started 4 min ago.");
-  const failed = { ...running, state: "failed", error: "The live plugin failed its check:\n- overview: broken\nRolled back to version 6." };
-  assert.equal(describeRelease(releaseData(status(failed), "0.1.0"), now), "God Mode 0.1.0 is live and up to date with the Mac. The last update failed: The live plugin failed its check:");
-  const done = { ...running, action: "rollback", state: "succeeded", result: { message: "Version 6 is live again." } };
-  assert.match(describeRelease(releaseData(status(done), "0.1.0"), now), /The last rollback succeeded: Version 6 is live again\./);
-});
-
-test("a newer release on GitHub is mentioned, and the build travels in the data", () => {
-  const data = releaseData({ installed: "0.5.0", live: { versionNumber: 9 }, latest: { version: "0.6.0", newer: true }, job: null }, "0.5.0", "v0.5.0");
-  assert.equal(data.build, "v0.5.0");
-  assert.equal(describeRelease(data), "God Mode 0.5.0 is live and up to date with the Mac. Version 0.6.0 is out on GitHub; update the God Mode plugin in Paseo to get it.");
-  const same = releaseData({ installed: "0.5.0", latest: { version: "0.5.0", newer: false }, job: null }, "0.5.0");
-  assert.doesNotMatch(describeRelease(same), /GitHub/);
 });
 
 test("a project name picks the one active chat for reads, never between two", () => {
@@ -537,23 +513,6 @@ test("show_images reads as speech: the chat, the turn, what is on screen, what w
 
 test("a step that is an image reads as one, not as a path", () => {
   assert.equal(describeStep({ type: "assistant_message", text: `![Image](${SHOT})` }), "writing: [image]");
-});
-
-test("a write's reply counts its images instead of reading their paths", () => {
-  assert.deepEqual(repliedOutcome("pong"), { text: "Agent replied: pong", data: { outcome: "replied", delivered: true, reply: "pong", reply_chars: 4, reply_truncated: false } });
-  const shot = repliedOutcome(`Done: ![Image](${SHOT})`);
-  assert.equal(shot.text, "Agent replied: Done: [image 1]\nThe reply has 1 image(s); show_images puts them on the user's screen.");
-  assert.deepEqual(shot.data, { outcome: "replied", delivered: true, reply: "Done: [image 1]", reply_chars: 15, reply_truncated: false, images: 1 });
-});
-
-test("a write's long reply says it is cut, how long it is and how to read all of it", () => {
-  // Agents' replies run to 13 000 characters (measured on this Mac's chats); the answer carries 1500.
-  const long = `Кадр, держи развилки 😀. ${"Раздел с подробностями и примерами. ".repeat(400)}`;
-  const out = repliedOutcome(long);
-  assert.equal(out.data.reply_truncated, true);
-  assert.equal(out.data.reply_chars, Array.from(long).length);
-  assert.ok(out.data.reply.length <= 1502 && out.data.reply.endsWith(" …"));
-  assert.match(out.text, new RegExp(`^Agent replied: Кадр, держи развилки 😀\\. [^\\n]+ …\\nThe reply is cut to 1500 of its ${Array.from(long).length} characters: read_message \\(turn 1\\) reads it whole\\.$`));
 });
 
 // ---- Pinned chats ----------------------------------------------------------------------------------

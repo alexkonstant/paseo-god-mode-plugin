@@ -136,7 +136,7 @@ test("a form God Mode cannot fill says why: malformed, a secret, or headers Pase
   assert.equal(parseQuestions({ questions: [] }), null);
   assert.equal(cannotFill({ kind: "question", input: { plan: "…" } }), "its form is not one God Mode can read");
   const secret = { questions: [{ id: "key", header: "Key", question: "Paste the API key", isOther: true, isSecret: true, options: [] }] };
-  assert.equal(cannotFill({ kind: "question", input: secret }), "it asks for a secret, which must not go through ChatGPT");
+  assert.equal(cannotFill({ kind: "question", input: secret }), "it asks for a secret, which must not go through God Mode");
   const twins = { questions: [CLAUDE.questions[0], { ...CLAUDE.questions[1], header: "Release" }] };
   assert.equal(cannotFill({ kind: "question", input: twins }), "two of its questions share a header");
 });

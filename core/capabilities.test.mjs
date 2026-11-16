@@ -160,7 +160,7 @@ test("plugin_read without a plugin lists every installed plugin, with what each 
   assert.equal(data.plugins[0].reads[0].description, "On or off, and how bright.");
   assert.deepEqual(data.plugins[0].actions.map((a) => a.risk), ["low", "disruptive"]);
   assert.deepEqual(data.plugins[0].actions.map((a) => [a.id, a.asks_first]), [["dim", false], ["off", true]]);
-  assert.equal(data.plugins[1].reason, "does not describe itself to ChatGPT");
+  assert.equal(data.plugins[1].reason, "does not describe itself to God Mode");
   assert.match(data.plugins[2].reason, /not running \(failed\)/);
   assert.match(text, /Desk lamp \(lamp\): The lamp on the desk\./);
   assert.match(text, /off \[asks first\]/);
@@ -215,9 +215,9 @@ test("plugin_read refuses actions, unknown plugins and plugins with nothing to o
   assert.match((await pluginReadOn(client, { plugin: "lamp", operation: "off" })).invalid, /off is an action of Desk lamp: use plugin_action/);
   const unknown = await pluginReadOn(client, { plugin: "toaster" });
   assert.equal(unknown.data.needs_clarification.kind, "plugin");
-  assert.match(unknown.text, /No plugin matches "toaster"\. Plugins ChatGPT can use: Desk lamp \(lamp\)/);
+  assert.match(unknown.text, /No plugin matches "toaster"\. Plugins God Mode can use: Desk lamp \(lamp\)/);
   const silent = await pluginReadOn(client, { plugin: "voice" });
-  assert.match(silent.text, /voice is installed but offers nothing to ChatGPT/);
+  assert.match(silent.text, /voice is installed but offers nothing to God Mode/);
   assert.ok(!client.calls.some(([, method]) => method === "lamp.set"));
 });
 

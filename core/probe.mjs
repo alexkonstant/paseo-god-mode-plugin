@@ -1,5 +1,5 @@
-// Runs the paseo-remote operations locally against the real daemon, through
-// the relay, exactly as the Site does. For trying changes before a deploy.
+// Runs the God Mode operations against the real Paseo daemon on this Mac, the way the plugin's
+// gateway does. For trying changes before a reload.
 //
 //   node core/probe.mjs overview [--hours 12]
 //   node core/probe.mjs chats [--project P] [--status running|waiting|new|all] [--query Q] [--archived]
@@ -10,12 +10,12 @@
 //   node core/probe.mjs images [chat] [--turn N] [--image N] [--count N] [--save DIR]
 //   node core/probe.mjs search <query…> [--project P] [--chat C] [--archived] [--scan 20] [--limit 10]
 //   node core/probe.mjs models [provider]
-//   node core/probe.mjs start <project|-> <prompt…> [--workspace W] [--wait 15] [--provider P] [--model M] [--thinking T] [--mode M]
+//   node core/probe.mjs start <project|-> <prompt…> [--workspace W] [--provider P] [--model M] [--thinking T] [--mode M]
 //   node core/probe.mjs set <chat> [--model M] [--thinking T]
-//   node core/probe.mjs send <chat> <text…> [--wait 15] [--if-busy steer|interrupt]
+//   node core/probe.mjs send <chat> <text…> [--if-busy steer|interrupt]
 //   node core/probe.mjs approve <chat> allow|deny [--request N]
 //   node core/probe.mjs request <chat>
-//   node core/probe.mjs answer <chat> <request id> --answers JSON [--wait 15]
+//   node core/probe.mjs answer <chat> <request id> --answers JSON
 //   node core/probe.mjs stop <chat>
 //   node core/probe.mjs archive <chat>
 //   node core/probe.mjs pin|unpin <chat> | --workspace W
@@ -25,13 +25,11 @@
 //   node core/probe.mjs plugin-read <plugin> [operation] [--args JSON]
 //   node core/probe.mjs plugin-act <plugin> <operation> [--args JSON] [--confirm TOKEN]
 //   node core/probe.mjs commands <chat> [--query Q] [--limit 60]
-//   node core/probe.mjs command <chat> <name> [args…] [--if-busy interrupt] [--confirm TOKEN] [--wait 15]
+//   node core/probe.mjs command <chat> <name> [args…] [--if-busy interrupt] [--confirm TOKEN]
 //
 // --json prints the structured data instead of the text; images print their size, never their
-// bytes, and --save writes them to DIR to look at. The pairing URL comes
-// from PASEO_PAIRING_URL, or else from `paseo pair` on this machine. It is
-// never printed.
-import { execFileSync } from "node:child_process";
+// bytes, and --save writes them to DIR to look at. It connects with the daemon's local credential
+// (PASEO_HOME, default ~/.paseo), which is never printed.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -61,12 +59,7 @@ import {
   startChat,
   stopChat,
 } from "./paseo.mjs";
-
-function pairingUrl() {
-  if (process.env.PASEO_PAIRING_URL) return process.env.PASEO_PAIRING_URL;
-  const cli = process.env.PASEO_CLI ?? "/Applications/Paseo.app/Contents/Resources/bin/paseo";
-  return JSON.parse(execFileSync(cli, ["pair", "--json"], { encoding: "utf8" })).url;
-}
+import { localDaemon } from "./local.mjs";
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -88,7 +81,6 @@ const { values, positionals } = parseArgs({
     chat: { type: "string" },
     scan: { type: "string" },
     limit: { type: "string" },
-    wait: { type: "string" },
     provider: { type: "string" },
     model: { type: "string" },
     thinking: { type: "string" },
@@ -108,22 +100,23 @@ const { values, positionals } = parseArgs({
 
 const [command, first, ...rest] = positionals;
 const number = (value, fallback) => (value === undefined ? fallback : Number(value));
-const url = pairingUrl();
+// Confirmations the probe issues are signed with its own secret and work only in the probe.
+const daemon = localDaemon({ secret: "god-mode-probe" });
 const startedAt = Date.now();
 
 const operations = {
-  overview: () => overview(url, { hours: number(values.hours, 12) }),
+  overview: () => overview(daemon, { hours: number(values.hours, 12) }),
   chats: () =>
-    listChats(url, {
+    listChats(daemon, {
       project: values.project,
       status: values.status,
       query: values.query,
       includeArchived: Boolean(values.archived),
       limit: number(values.limit, 10),
     }),
-  pinned: () => listPinnedChats(url, { project: values.project, query: values.query }),
+  pinned: () => listPinnedChats(daemon, { project: values.project, query: values.query }),
   read: () =>
-    readChat(url, {
+    readChat(daemon, {
       chat: first,
       view: values.view,
       turn: number(values.turn, 1),
@@ -131,7 +124,7 @@ const operations = {
       maxChars: number(values.max, undefined),
     }),
   message: () =>
-    readMessage(url, {
+    readMessage(daemon, {
       chat: first,
       role: values.role,
       turn: number(values.turn, undefined),
@@ -141,11 +134,11 @@ const operations = {
       size: number(values.size, undefined),
       offset: number(values.offset, undefined),
     }),
-  activity: () => readActivity(url, { chat: first, maxChars: number(values.max, undefined), offset: number(values.offset, undefined) }),
+  activity: () => readActivity(daemon, { chat: first, maxChars: number(values.max, undefined), offset: number(values.offset, undefined) }),
   images: () =>
-    showImages(url, { chat: first, turn: number(values.turn, undefined), image: number(values.image, undefined), count: number(values.count, undefined) }),
+    showImages(daemon, { chat: first, turn: number(values.turn, undefined), image: number(values.image, undefined), count: number(values.count, undefined) }),
   search: () =>
-    searchMessages(url, {
+    searchMessages(daemon, {
       query: [first, ...rest].join(" "),
       project: values.project,
       chat: values.chat,
@@ -153,9 +146,9 @@ const operations = {
       scan: number(values.scan, undefined),
       limit: number(values.limit, 10),
     }),
-  models: () => listModels(url, { provider: first }),
+  models: () => listModels(daemon, { provider: first }),
   start: () =>
-    startChat(url, {
+    startChat(daemon, {
       project: first === "-" ? undefined : first,
       workspace: values.workspace,
       prompt: rest.join(" "),
@@ -163,33 +156,31 @@ const operations = {
       model: values.model,
       thinking: values.thinking,
       mode: values.mode,
-      waitSeconds: number(values.wait, 15),
     }),
-  set: () => setChatModel(url, { chat: first, model: values.model, thinking: values.thinking }),
+  set: () => setChatModel(daemon, { chat: first, model: values.model, thinking: values.thinking }),
   send: () =>
-    sendMessage(url, { chat: first, text: rest.join(" "), ifBusy: values["if-busy"], waitSeconds: number(values.wait, 15) }),
-  approve: () => answerApproval(url, { chat: first, decision: rest[0], request: values.request }),
-  request: () => readApproval(url, { chat: first }),
-  answer: () => answerQuestions(url, { chat: first, request: rest[0], answers: JSON.parse(values.answers ?? "[]"), waitSeconds: number(values.wait, 15) }),
-  stop: () => stopChat(url, { chat: first }),
-  archive: () => archiveChat(url, { chat: first }),
-  pin: () => pinChat(url, { chat: first, workspaceId: values.workspace, action: "pin" }),
-  unpin: () => pinChat(url, { chat: first, workspaceId: values.workspace, action: "unpin" }),
-  rename: () => renameChat(url, { chat: first, name: rest.join(" ").trim() }),
-  "rename-workspace": () => renameWorkspace(url, { workspace: first, name: rest.join(" ").trim() }),
-  plugins: () => pluginRead(url, {}),
-  "plugin-read": () => pluginRead(url, { plugin: first, operation: rest[0], args: values.args ? JSON.parse(values.args) : undefined }),
+    sendMessage(daemon, { chat: first, text: rest.join(" "), ifBusy: values["if-busy"] }),
+  approve: () => answerApproval(daemon, { chat: first, decision: rest[0], request: values.request }),
+  request: () => readApproval(daemon, { chat: first }),
+  answer: () => answerQuestions(daemon, { chat: first, request: rest[0], answers: JSON.parse(values.answers ?? "[]") }),
+  stop: () => stopChat(daemon, { chat: first }),
+  archive: () => archiveChat(daemon, { chat: first }),
+  pin: () => pinChat(daemon, { chat: first, workspaceId: values.workspace, action: "pin" }),
+  unpin: () => pinChat(daemon, { chat: first, workspaceId: values.workspace, action: "unpin" }),
+  rename: () => renameChat(daemon, { chat: first, name: rest.join(" ").trim() }),
+  "rename-workspace": () => renameWorkspace(daemon, { workspace: first, name: rest.join(" ").trim() }),
+  plugins: () => pluginRead(daemon, {}),
+  "plugin-read": () => pluginRead(daemon, { plugin: first, operation: rest[0], args: values.args ? JSON.parse(values.args) : undefined }),
   "plugin-act": () =>
-    pluginAction(url, { plugin: first, operation: rest[0], args: values.args ? JSON.parse(values.args) : undefined, confirmation: values.confirm }),
-  commands: () => listSlashCommands(url, { chat: first, query: values.query, limit: number(values.limit, 60) }),
+    pluginAction(daemon, { plugin: first, operation: rest[0], args: values.args ? JSON.parse(values.args) : undefined, confirmation: values.confirm }),
+  commands: () => listSlashCommands(daemon, { chat: first, query: values.query, limit: number(values.limit, 60) }),
   command: () =>
-    runSlashCommand(url, {
+    runSlashCommand(daemon, {
       chat: first,
       command: rest[0],
       args: rest.slice(1).join(" "),
       ifBusy: values["if-busy"],
       confirmation: values.confirm,
-      waitSeconds: number(values.wait, 15),
     }),
 };
 

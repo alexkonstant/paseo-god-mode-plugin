@@ -5,13 +5,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   adapterFor,
-  afterCommand,
   commandData,
-  commandResult,
   commandText,
   compactionNote,
   confirmText,
-  contextChange,
   describeCommands,
   filterCommands,
   findCommand,
@@ -202,57 +199,8 @@ test("the confirmation says the command, the chat, what it does, and what this r
   assert.match(loud, /It stops the chat's current work first\.$/);
 });
 
-test("the run's own items are the ones after its message", () => {
-  const items = [
-    { type: "assistant_message", text: "earlier" },
-    { type: "user_message", text: "/context", clientMessageId: "m1" },
-    { type: "assistant_message", text: "## Context Usage" },
-  ];
-  assert.deepEqual(afterCommand(items, "m1"), [{ type: "assistant_message", text: "## Context Usage" }]);
-  assert.equal(afterCommand(items, "m2"), null);
-});
-
 const BEFORE = { contextWindowMaxTokens: 1_000_000, contextWindowUsedTokens: 22684 };
 const AFTER = { contextWindowMaxTokens: 1_000_000, contextWindowUsedTokens: 1755 };
-
-test("a done /compact reports the context before and after, and ignores the earlier output Paseo repeats", () => {
-  const compact = byName(describeCommands("claude", CLAUDE_LIST)).compact;
-  // Seen live: loading, completed with preTokens, then the previous /context output again.
-  const items = [
-    { type: "compaction", status: "loading" },
-    { type: "compaction", status: "completed", trigger: "manual", preTokens: 22772 },
-    { type: "assistant_message", text: "## Context Usage …" },
-  ];
-  const result = commandResult(compact, { items, status: "idle", usageBefore: BEFORE, usageAfter: AFTER });
-  assert.deepEqual(result, { outcome: "done", settled: true, context: { before_tokens: 22772, after_tokens: 1755, max_tokens: 1_000_000, percent_used: 0 } });
-  assert.equal(contextChange(result.context), "context 23k → 2k tokens (0% of 1M)");
-  const unknownAfter = commandResult(compact, { items, status: "idle", usageBefore: BEFORE, usageAfter: BEFORE });
-  assert.deepEqual(unknownAfter.context, { before_tokens: 22772, max_tokens: 1_000_000 });
-  assert.equal(contextChange(unknownAfter.context), "context was 23k tokens");
-});
-
-test("a /compact that cannot run says why; a failed one is an error; a running one is not settled", () => {
-  const claude = byName(describeCommands("claude", CLAUDE_LIST)).compact;
-  const codex = byName(describeCommands("codex", CODEX_LIST)).compact;
-  const refused = commandResult(claude, { items: [{ type: "compaction", status: "loading" }, { type: "assistant_message", text: "Not enough messages to compact." }], status: "idle" });
-  assert.deepEqual(refused, { outcome: "refused", settled: true, reason: "Not enough messages to compact." });
-  const failed = commandResult(codex, { items: [{ type: "assistant_message", text: "Failed to compact context: thread is busy" }], status: "idle" });
-  assert.deepEqual(failed, { outcome: "error", settled: true, error: "Failed to compact context: thread is busy" });
-  assert.deepEqual(commandResult(claude, { items: [{ type: "compaction", status: "loading" }], status: "running" }), { outcome: "still_working", settled: false });
-  assert.deepEqual(commandResult(codex, { items: [], status: "idle" }), { outcome: "still_working", settled: false }, "Codex compacts outside any turn: not there yet");
-  assert.equal(commandResult(claude, { items: [], status: "idle" }).outcome, "error", "a turn that ended with nothing is not confirmed");
-});
-
-test("other commands: their output, an approval, an error, or still running", () => {
-  const c = byName(describeCommands("claude", CLAUDE_LIST));
-  const goal = byName(describeCommands("codex", CODEX_LIST)).goal;
-  assert.deepEqual(commandResult(c.context, { items: [{ type: "assistant_message", text: "## Context Usage" }], status: "idle" }), { outcome: "replied", settled: true, reply: "## Context Usage" });
-  assert.deepEqual(commandResult(c["gm-ping"], { items: [], status: "idle" }), { outcome: "replied", settled: true, reply: "" });
-  assert.deepEqual(commandResult(c["gm-ping"], { items: [], status: "running", approval: "run: rm -rf build" }), { outcome: "waiting_for_approval", settled: true, approval: "run: rm -rf build" });
-  assert.deepEqual(commandResult(c["gm-ping"], { items: [{ type: "error", message: "overloaded" }], status: "idle" }), { outcome: "error", settled: true, error: "overloaded" });
-  assert.deepEqual(commandResult(c["gm-ping"], { items: [{ type: "assistant_message", text: "half" }], status: "running" }), { outcome: "still_working", settled: false });
-  assert.deepEqual(commandResult(goal, { items: [{ type: "assistant_message", text: "Goal paused." }], status: "running" }), { outcome: "replied", settled: true, reply: "Goal paused." }, "Codex's /goal answers beside a running turn");
-});
 
 test("read_chat: a manual compaction ends its turn, an automatic one does not", () => {
   const manual = [

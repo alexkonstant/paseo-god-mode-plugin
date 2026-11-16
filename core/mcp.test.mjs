@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createMcpHandler, readConfig, TOOLS } from "./mcp.mjs";
 import { PaseoOffline } from "./paseo.mjs";
-import { BUILD } from "./build.mjs";
 import { VERSION } from "./version.mjs";
 import { changeResult } from "./models.mjs";
 import { chatData, chatRenameResult, pinnedResult, pinResult, rowQuestion, rowsQuestion, workspaceRenameResult } from "./text.mjs";
@@ -33,7 +32,7 @@ function fakeOps(overrides = {}) {
     return overrides[name] ? overrides[name](args) : { text: `${name} ok`, data: { echo: name } };
   };
   const ops = Object.fromEntries(
-    ["overview", "listChats", "listPinnedChats", "readChat", "readMessage", "readActivity", "showImages", "searchMessages", "listModels", "startChat", "sendMessage", "readApproval", "answerApproval", "answerQuestions", "stopChat", "archiveChat", "pinChat", "renameChat", "renameWorkspace", "setChatModel", "listSlashCommands", "runSlashCommand", "pluginRead", "pluginAction", "releaseStatus", "releaseStart"].map((n) => [n, op(n)]),
+    ["overview", "listChats", "listPinnedChats", "readChat", "readMessage", "readActivity", "showImages", "searchMessages", "listModels", "startChat", "sendMessage", "readApproval", "answerApproval", "answerQuestions", "stopChat", "archiveChat", "pinChat", "renameChat", "renameWorkspace", "setChatModel", "listSlashCommands", "runSlashCommand", "pluginRead", "pluginAction"].map((n) => [n, op(n)]),
   );
   return { ops, calls };
 }
@@ -53,7 +52,9 @@ function fakeLog() {
 
 const rpc = (method, params) => ({ jsonrpc: "2.0", id: 1, method, params });
 const call = (name, args) => rpc("tools/call", { name, arguments: args });
-const configured = (env = {}) => readConfig({ PASEO_PAIRING_URL: SECRET, ...env });
+// The daemon as the gateway passes it; tests never connect, so url() and credential() are never read.
+const DAEMON = { url: () => "ws://127.0.0.1:6767/ws", credential: () => null, secret: SECRET };
+const configured = () => readConfig({ daemon: DAEMON });
 
 // Enough JSON Schema to check our own outputs: type (incl. arrays of types),
 // properties, required, items, enum.
@@ -77,23 +78,20 @@ function validate(schema, value, path = "$") {
 
 const schemaOf = (name) => TOOLS.find((t) => t.name === name).outputSchema;
 
-test("readConfig: defaults, flags and clamping", () => {
-  const config = readConfig({ PASEO_PAIRING_URL: SECRET, PASEO_WAIT_SECONDS: "90", PASEO_CONFIRM_RISKY: "off", PASEO_NEW_CHAT_MODE: "nonsense" });
-  assert.equal(config.waitSeconds, 25);
-  assert.equal(config.confirmRisky, false);
-  assert.equal(config.log, true);
-  assert.equal(config.mode, undefined);
-  assert.equal(readConfig({}).waitSeconds, 15);
-  assert.equal(readConfig({ PASEO_NEW_CHAT_MODE: "bypassPermissions" }).mode, "bypassPermissions");
+test("readConfig: the daemon as given, and risky actions always confirmed", () => {
+  const config = readConfig({ daemon: DAEMON });
+  assert.equal(config.daemon, DAEMON);
+  assert.equal(config.confirmRisky, true);
+  assert.equal(readConfig().daemon, null);
 });
 
-test("instructions follow the language and the confirmation setting, and route each request to one call", async () => {
+test("instructions carry the Russian hints and the confirmation rule for everyone, and route each request to one call", async () => {
   const { ops } = fakeOps();
-  const ru = await createMcpHandler({ config: readConfig({ PASEO_LANGUAGE: "ru" }), ops })(rpc("initialize"));
+  const ru = await createMcpHandler({ config: configured(), ops })(rpc("initialize"));
   const text = ru.result.instructions;
   assert.match(text, /^Paseo runs the user's coding agents\. One call first: /);
   assert.match(text, /A chat is one agent conversation \(Claude, Codex…\) in a project/);
-  assert.match(text, /Speak to the user in Russian/);
+  assert.match(text, /Answer in the user's language/);
   assert.match(text, /по SEO/);
   assert.match(text, /Not commands, ask «Отправить\?» first: «можешь закинуть»/);
   assert.match(text, /what agents or subagents do now → read_activity/);
@@ -104,7 +102,7 @@ test("instructions follow the language and the confirmation setting, and route e
   for (const phrase of ["write/draft a prompt", "…and then we'll send it", "ask the agent to …", "let's tell it …", "you can/could send it"]) assert.ok(text.includes(phrase), phrase);
   assert.match(text, /One instruction from the user is one write call/);
   assert.match(text, /never send it again or a reworded copy, not even after you described or planned what happens next/);
-  assert.match(text, /delivered=true \(replied, still_working, not_waiting\) means it arrived/);
+  assert.match(text, /delivered=true means it arrived/);
   assert.match(text, /busy = not delivered/);
   assert.match(text, /a plain "send it" means add it \(if_busy steer\)/);
   assert.match(text, /do not poll/);
@@ -116,13 +114,6 @@ test("instructions follow the language and the confirmation setting, and route e
     /needs_clarification means nothing was done: ask the user which one, unless their words pick one \("the latest" is the one updated most recently\) or this conversation already read or used exactly one of them; then call again with its id\./,
   );
   assert.match(text, /must have heard exactly what will happen and said yes/);
-  const plain = await createMcpHandler({ config: readConfig({ PASEO_CONFIRM_RISKY: "off" }), ops })(rpc("server/discover"));
-  assert.match(plain.result.instructions, /Answer in the user's language/);
-  assert.doesNotMatch(plain.result.instructions, /по SEO/);
-  assert.doesNotMatch(plain.result.instructions, /закинуть/, "language hints only for their language");
-  assert.doesNotMatch(plain.result.instructions, /переключи|форт/, "nor the hints about switching a model");
-  assert.doesNotMatch(plain.result.instructions, /переименуй/, "nor the ones about renaming");
-  assert.match(plain.result.instructions, /no read-back needed/);
   const marker = "where something was said → search_messages;";
   const routingEnd = text.indexOf(marker) + marker.length;
   assert.ok(routingEnd > marker.length && routingEnd <= 512, `the routing sits in the first 512 characters (ends at ${routingEnd})`);
@@ -144,14 +135,17 @@ test("instructions follow the language and the confirmation setting, and route e
   assert.match(text, /and "effort" as «форт»/);
 });
 
-test("the server version changes with anything the model reads", async () => {
+test("the server version fingerprints what the model reads, stable for the same metadata", async () => {
   const ops = fakeOps().ops;
-  const en = (await createMcpHandler({ config: readConfig({}), ops })(rpc("initialize"))).result.serverInfo.version;
-  const ru = (await createMcpHandler({ config: readConfig({ PASEO_LANGUAGE: "ru" }), ops })(rpc("initialize"))).result.serverInfo.version;
-  const again = (await createMcpHandler({ config: readConfig({}), ops })(rpc("server/discover"))).result.serverInfo.version;
-  assert.match(en, new RegExp(`^${VERSION.replaceAll(".", "\\.")}\\+[0-9a-f]{8}$`));
-  assert.notEqual(en, ru, "instructions differ, so the version does");
-  assert.equal(en, again, "stable for the same metadata");
+  const first = (await createMcpHandler({ config: configured(), ops })(rpc("initialize"))).result.serverInfo.version;
+  const again = (await createMcpHandler({ config: readConfig(), ops })(rpc("initialize"))).result.serverInfo.version;
+  assert.match(first, new RegExp(`^${VERSION.replaceAll(".", "\\.")}\\+[0-9a-f]{8}$`));
+  assert.equal(first, again, "the daemon is not part of what the model reads");
+});
+
+test("server/discover is not served, so Claude and ChatGPT fall back to initialize", async () => {
+  const reply = await createMcpHandler({ config: configured(), ops: fakeOps().ops })(rpc("server/discover"));
+  assert.equal(reply.error.code, -32601);
 });
 
 test("initialize negotiates the protocol version", async () => {
@@ -160,7 +154,7 @@ test("initialize negotiates the protocol version", async () => {
   assert.equal((await handle(rpc("initialize", { protocolVersion: "1999-01-01" }))).result.protocolVersion, "2025-06-18");
 });
 
-test("tools/list exposes twenty-five tools, output schemas and honest annotations", async () => {
+test("tools/list exposes twenty-three tools, output schemas and honest annotations", async () => {
   const { result } = await createMcpHandler({ config: readConfig({}), ops: fakeOps().ops })(rpc("tools/list"));
   assert.deepEqual(
     result.tools.map((t) => t.name),
@@ -189,8 +183,6 @@ test("tools/list exposes twenty-five tools, output schemas and honest annotation
       "run_slash_command",
       "plugin_read",
       "plugin_action",
-      "update_status",
-      "update_site",
       "get_logs",
     ],
   );
@@ -251,9 +243,6 @@ test("tools/list exposes twenty-five tools, output schemas and honest annotation
   assert.deepEqual(byName.set_chat_model.outputSchema.properties.outcome.enum, ["changed", "partial", "unchanged", "archived", "other_runtime", "unavailable", "error"]);
   assert.deepEqual(byName.start_chat.inputSchema.required, ["prompt"], "a project, or an existing workspace in its place");
   assert.ok(byName.start_chat.inputSchema.properties.workspace, "start_chat can open a chat in an existing workspace");
-  assert.equal(byName.update_status.annotations.readOnlyHint, true);
-  assert.equal(byName.update_site.annotations.destructiveHint, true);
-  assert.match(byName.update_site.description, /wait for the user's yes before calling/);
   assert.equal(byName.plugin_read.annotations.readOnlyHint, true);
   assert.equal(byName.plugin_action.annotations.readOnlyHint, false);
   assert.equal(byName.plugin_action.annotations.destructiveHint, true);
@@ -340,7 +329,7 @@ test("the call rules are repeated where ChatGPT picks the tool", () => {
   assert.match(byName.send_message.description, /when the user's latest words tell you to send now/);
   assert.match(byName.send_message.description, /One instruction = one call: never split it into several messages, never send it again or a reworded copy/);
   assert.match(byName.send_message.description, /ask "Send it\?" first/);
-  assert.match(byName.send_message.description, /delivered=true \(replied, still_working, not_waiting\) means it arrived/);
+  assert.match(byName.send_message.description, /delivered=true means it arrived/);
   assert.match(byName.send_message.description, /busy means NOT delivered/);
   assert.match(byName.send_message.description, /never say it was sent/);
   assert.match(byName.send_message.inputSchema.properties.if_busy.description, /a plain "send it"/);
@@ -406,8 +395,6 @@ test("the call rules are repeated where ChatGPT picks the tool", () => {
   assert.match(byName.start_chat.description, /Without workspace the chat gets a workspace of its own, as New chat does\./);
   assert.match(byName.start_chat.inputSchema.properties.workspace.description, /Leave empty for a workspace of its own/);
   assert.match(byName.read_chat.description, /view "thinking"/);
-  assert.match(byName.update_site.description, /after one update_status call/);
-  assert.match(byName.update_site.description, /update the God Mode plugin in Paseo first/);
   // Slash commands: listing is never a required first step; a run follows the write rules.
   assert.match(byName.list_slash_commands.description, /To run a command, call run_slash_command directly; no list first/);
   assert.match(byName.list_slash_commands.description, /Not for the shell commands an agent ran: that is read_chat view commands/);
@@ -424,7 +411,7 @@ test("without the secret, tools refuse except get_logs", async () => {
   const handle = createMcpHandler({ config: readConfig({}), ops, log: fakeLog() });
   const refused = await handle(call("overview", {}));
   assert.equal(refused.result.isError, true);
-  assert.match(refused.result.content[0].text, /PASEO_PAIRING_URL/);
+  assert.match(refused.result.content[0].text, /not connected to Paseo on this Mac/);
   assert.equal(calls.length, 0);
   assert.equal((await handle(call("get_logs", {}))).result.isError, undefined);
 });
@@ -455,7 +442,7 @@ test("read_chat, read_activity, list_chats, list_pinned_chats and search_message
   for (const view of ["turns", "search"]) assert.equal((await handle(call("read_chat", { chat: "fleet", view }))).error.code, -32602, view);
   assert.equal(calls.length, before, "removed views run nothing");
   await handle(call("read_activity", {}));
-  assert.deepEqual(calls.at(-1), { name: "readActivity", url: SECRET, args: { chat: undefined, maxChars: undefined } });
+  assert.deepEqual(calls.at(-1), { name: "readActivity", url: DAEMON, args: { chat: undefined, maxChars: undefined } });
   await handle(call("read_activity", { chat: "fleet", max_chars: 900 }));
   assert.deepEqual(calls.at(-1).args, { chat: "fleet", maxChars: 900 });
   await handle(call("read_activity", { chat: "fleet", offset: 15 }));
@@ -463,7 +450,7 @@ test("read_chat, read_activity, list_chats, list_pinned_chats and search_message
   await handle(call("list_chats", { query: "DNSSEC", include_archived: true }));
   assert.deepEqual(calls.at(-1).args, { project: undefined, status: undefined, query: "DNSSEC", includeArchived: true, limit: 10 });
   await handle(call("list_pinned_chats", {}));
-  assert.deepEqual(calls.at(-1), { name: "listPinnedChats", url: SECRET, args: { project: undefined, query: undefined } });
+  assert.deepEqual(calls.at(-1), { name: "listPinnedChats", url: DAEMON, args: { project: undefined, query: undefined } });
   await handle(call("list_pinned_chats", { project: "proxy", query: "fleet" }));
   assert.deepEqual(calls.at(-1).args, { project: "proxy", query: "fleet" });
   await handle(call("search_messages", { query: "dataviz", project: "proxy", scan: 30 }));
@@ -486,7 +473,7 @@ test("read_message passes its arguments through, and a bad one is a JSON-RPC err
   const handle = createMcpHandler({ config: configured(), ops });
   const args = (given) => ({ chat: "fleet", role: undefined, turn: undefined, message: undefined, id: undefined, mode: "full", size: undefined, offset: undefined, ...given });
   await handle(call("read_message", { chat: "#a22524f" }));
-  assert.deepEqual(calls.at(-1), { name: "readMessage", url: SECRET, args: args({ chat: "#a22524f" }) }, "the mode defaults to full");
+  assert.deepEqual(calls.at(-1), { name: "readMessage", url: DAEMON, args: args({ chat: "#a22524f" }) }, "the mode defaults to full");
   await handle(call("read_message", { chat: "fleet", role: "user", mode: "tail", size: 800 }));
   assert.deepEqual(calls.at(-1).args, args({ role: "user", mode: "tail", size: 800 }));
   await handle(call("read_message", { chat: "fleet", message_id: "agent-1117", offset: 12000, size: 6000 }));
@@ -515,9 +502,9 @@ test("read_message passes its arguments through, and a bad one is a JSON-RPC err
   assert.equal(calls.length, before, "bad arguments run nothing");
 });
 
-test("start_chat passes the user's choices and the site settings apart", async () => {
+test("start_chat passes the user's choices, and bypassPermissions as the default apart from them", async () => {
   const { ops, calls } = fakeOps();
-  const config = configured({ PASEO_NEW_CHAT_MODEL: "claude-sonnet-5-5", PASEO_NEW_CHAT_MODE: "bypassPermissions", PASEO_WAIT_SECONDS: "10" });
+  const config = configured();
   const handle = createMcpHandler({ config, ops });
   await handle(call("start_chat", { project: "proxy", prompt: "run tests", mode: "plan" }));
   assert.deepEqual(calls[0].args, {
@@ -528,10 +515,9 @@ test("start_chat passes the user's choices and the site settings apart", async (
     thinking: undefined,
     mode: "plan",
     workspace: undefined,
-    defaults: { model: "claude-sonnet-5-5", thinking: undefined, mode: "bypassPermissions" },
-    waitSeconds: 10,
+    defaults: { mode: "bypassPermissions" },
   });
-  assert.equal(calls[0].url, SECRET);
+  assert.equal(calls[0].url, DAEMON);
   await handle(call("start_chat", { project: "proxy", prompt: "run tests", provider: "codex", model: "GPT-6-Astra", thinking: "high" }));
   assert.deepEqual(
     { provider: calls[1].args.provider, model: calls[1].args.model, thinking: calls[1].args.thinking, mode: calls[1].args.mode },
@@ -559,16 +545,16 @@ test("start_chat opens in an existing workspace by its id or name, with a projec
 
 test("set_chat_model passes only what was asked, and nothing to change is a JSON-RPC error before anything runs", async () => {
   const { ops, calls } = fakeOps();
-  const handle = createMcpHandler({ config: configured({ PASEO_NEW_CHAT_MODEL: "claude-sonnet-5-5", PASEO_NEW_CHAT_THINKING: "max" }), ops });
+  const handle = createMcpHandler({ config: configured(), ops });
   await handle(call("set_chat_model", { chat: "#a22524f", model: " Sonnet 5.5 " }));
   await handle(call("set_chat_model", { chat: "fleet", thinking: "max" }));
   await handle(call("set_chat_model", { chat: "fleet", model: "Opus 5.5", thinking: "max" }));
   assert.deepEqual(
     calls.map((c) => [c.name, c.url, c.args]),
     [
-      ["setChatModel", SECRET, { chat: "#a22524f", model: "Sonnet 5.5", thinking: undefined }],
-      ["setChatModel", SECRET, { chat: "fleet", model: undefined, thinking: "max" }],
-      ["setChatModel", SECRET, { chat: "fleet", model: "Opus 5.5", thinking: "max" }],
+      ["setChatModel", DAEMON, { chat: "#a22524f", model: "Sonnet 5.5", thinking: undefined }],
+      ["setChatModel", DAEMON, { chat: "fleet", model: undefined, thinking: "max" }],
+      ["setChatModel", DAEMON, { chat: "fleet", model: "Opus 5.5", thinking: "max" }],
     ],
     "the site's defaults for new chats never reach a chat that exists",
   );
@@ -588,14 +574,14 @@ test("list_models lists every runtime, or the one asked for", async () => {
 
 test("send_message passes if_archived on, and any other value is a JSON-RPC error before anything runs", async () => {
   const { ops, calls } = fakeOps();
-  const handle = createMcpHandler({ config: configured({ PASEO_WAIT_SECONDS: "7" }), ops });
+  const handle = createMcpHandler({ config: configured(), ops });
   await handle(call("send_message", { chat: "#8a9b0c1", text: "go on", if_archived: "restore" }));
   await handle(call("send_message", { chat: "fleet", text: "go on" }));
   assert.deepEqual(
     calls.map((c) => c.args),
     [
-      { chat: "#8a9b0c1", text: "go on", ifBusy: undefined, ifArchived: "restore", waitSeconds: 7 },
-      { chat: "fleet", text: "go on", ifBusy: undefined, ifArchived: undefined, waitSeconds: 7 },
+      { chat: "#8a9b0c1", text: "go on", ifBusy: undefined, ifArchived: "restore" },
+      { chat: "fleet", text: "go on", ifBusy: undefined, ifArchived: undefined },
     ],
   );
   assert.equal((await handle(call("send_message", { chat: "fleet", text: "go on", if_archived: "yes" }))).error.code, -32602);
@@ -610,8 +596,8 @@ test("pin_chat passes a chat or a workspace id, and anything else is a JSON-RPC 
   assert.deepEqual(
     calls.map((c) => [c.name, c.url, c.args]),
     [
-      ["pinChat", SECRET, { chat: "#a22524f", action: "pin" }],
-      ["pinChat", SECRET, { workspaceId: "wks_5e1d9a07c3b2f4e6", action: "unpin" }],
+      ["pinChat", DAEMON, { chat: "#a22524f", action: "pin" }],
+      ["pinChat", DAEMON, { workspaceId: "wks_5e1d9a07c3b2f4e6", action: "unpin" }],
     ],
   );
   for (const bad of [{ chat: "fleet" }, { chat: "fleet", action: "toggle" }, { action: "pin" }, { chat: " ", action: "pin" }, { chat: "fleet", workspace_id: "wks_1", action: "pin" }]) {
@@ -629,9 +615,9 @@ test("rename_chat and rename_workspace pass the name trimmed, and a missing or b
   assert.deepEqual(
     calls.map((c) => [c.name, c.url, c.args]),
     [
-      ["renameChat", SECRET, { chat: "#a22524f", name: "Fleet map E" }],
-      ["renameWorkspace", SECRET, { workspace: "wks_5e1d9a07c3b2f4e6", name: "Proxy fleet" }],
-      ["renameWorkspace", SECRET, { workspace: "Fleet map (proxy)", name: "Proxy fleet" }],
+      ["renameChat", DAEMON, { chat: "#a22524f", name: "Fleet map E" }],
+      ["renameWorkspace", DAEMON, { workspace: "wks_5e1d9a07c3b2f4e6", name: "Proxy fleet" }],
+      ["renameWorkspace", DAEMON, { workspace: "Fleet map (proxy)", name: "Proxy fleet" }],
     ],
   );
   for (const [tool, bad] of [
@@ -654,17 +640,17 @@ test("rename_chat and rename_workspace pass the name trimmed, and a missing or b
 
 test("read_approval and answer_questions pass their arguments, and bad answers are a JSON-RPC error before anything runs", async () => {
   const { ops, calls } = fakeOps();
-  const handle = createMcpHandler({ config: configured({ PASEO_WAIT_SECONDS: "8" }), ops });
+  const handle = createMcpHandler({ config: configured(), ops });
   await handle(call("read_approval", { chat: "#a22524f" }));
   const answers = [{ question: "1", options: ["1"] }, { question: "Daemon", text: "after the weekend" }];
   await handle(call("answer_questions", { chat: "#a22524f", request: "permission-7d1e", answers }));
-  await handle(call("answer_questions", { chat: "#a22524f", request: "permission-7d1e", answers, wait_seconds: 0 }));
+  await handle(call("answer_questions", { chat: "#a22524f", request: "permission-7d1e", answers }));
   assert.deepEqual(
     calls.map((c) => [c.name, c.url, c.args]),
     [
-      ["readApproval", SECRET, { chat: "#a22524f" }],
-      ["answerQuestions", SECRET, { chat: "#a22524f", request: "permission-7d1e", answers, waitSeconds: 8 }],
-      ["answerQuestions", SECRET, { chat: "#a22524f", request: "permission-7d1e", answers, waitSeconds: 0 }],
+      ["readApproval", DAEMON, { chat: "#a22524f" }],
+      ["answerQuestions", DAEMON, { chat: "#a22524f", request: "permission-7d1e", answers }],
+      ["answerQuestions", DAEMON, { chat: "#a22524f", request: "permission-7d1e", answers }],
     ],
   );
   for (const bad of [{ chat: "x", answers }, { request: "p", answers }, { chat: "x", request: "p" }, { chat: "x", request: "p", answers: [] }, { chat: "x", request: "p", answers: ["1"] }, { chat: "x", request: "p", answers: { question: "1" } }]) {
@@ -740,16 +726,16 @@ test("a failed write never reads as done", async () => {
 
 test("slash command tools pass their arguments, and bad ones are a JSON-RPC error before anything runs", async () => {
   const { ops, calls } = fakeOps();
-  const handle = createMcpHandler({ config: configured({ PASEO_WAIT_SECONDS: "9" }), ops });
+  const handle = createMcpHandler({ config: configured(), ops });
   await handle(call("list_slash_commands", { chat: "fleet", query: "review", limit: 5 }));
   await handle(call("run_slash_command", { chat: "fleet", command: "compact", args: "keep notes", if_busy: "interrupt", confirmation: "tok" }));
-  await handle(call("run_slash_command", { chat: "fleet", command: "context", wait_seconds: 0 }));
+  await handle(call("run_slash_command", { chat: "fleet", command: "context" }));
   assert.deepEqual(
     calls.map((c) => [c.name, c.args]),
     [
       ["listSlashCommands", { chat: "fleet", query: "review", limit: 5 }],
-      ["runSlashCommand", { chat: "fleet", command: "compact", args: "keep notes", ifBusy: "interrupt", confirmation: "tok", waitSeconds: 9 }],
-      ["runSlashCommand", { chat: "fleet", command: "context", args: undefined, ifBusy: undefined, confirmation: undefined, waitSeconds: 0 }],
+      ["runSlashCommand", { chat: "fleet", command: "compact", args: "keep notes", ifBusy: "interrupt", confirmation: "tok" }],
+      ["runSlashCommand", { chat: "fleet", command: "context", args: undefined, ifBusy: undefined, confirmation: undefined }],
     ],
   );
   for (const bad of [{ chat: "fleet" }, { command: "compact" }, { chat: "fleet", command: "compact", if_busy: "steer" }, { chat: "fleet", command: "compact", args: { text: "x" } }]) {
@@ -760,10 +746,10 @@ test("slash command tools pass their arguments, and bad ones are a JSON-RPC erro
   assert.equal(calls.length, 3, "nothing ran for the bad calls");
 });
 
-test("an offline daemon becomes one sentence, logged with the detail, never the secret", async () => {
+test("an offline daemon becomes one sentence, logged with the detail", async () => {
   const { ops } = fakeOps({
     overview: () => {
-      throw new PaseoOffline(`connect failed for ${SECRET}`);
+      throw new PaseoOffline("connect ECONNREFUSED 127.0.0.1:6767");
     },
   });
   const log = fakeLog();
@@ -772,8 +758,6 @@ test("an offline daemon becomes one sentence, logged with the detail, never the 
   assert.match(response.result.content[0].text, /Paseo is offline/);
   assert.equal(log.rows.length, 1);
   assert.equal(log.rows[0].ok, false);
-  assert.ok(!JSON.stringify(response).includes(SECRET));
-  assert.ok(!JSON.stringify(log.rows).includes(SECRET));
 });
 
 test("long arguments are cut before they reach the log", async () => {
@@ -1062,9 +1046,6 @@ test("the shapes the operations produce match the declared output schemas", () =
     ["run_slash_command", { needs_clarification: { kind: "command", query: "co", candidates: ["code-review", "context"] } }],
     ["archive_chat", clarification],
     ["read_chat", { chat: { ...sampleChat, context: { used_tokens: 59606, max_tokens: 1000000, percent_used: 6, remaining_tokens: 940394 } }, total_turns: 3, turns: [{ turn: 1, position: 3, started_at: null, thinking: "Check the relay first.", omitted_thoughts: 0 }] }],
-    ["update_status", { site_version: "0.1.0", build: "v0.1.0-2-gabc1234", installed_version: "0.1.1", update_available: true, latest_release: "0.2.0", latest_is_newer: true, live_release: 7, mac_online: true, job: { action: "update", state: "running", step: "Publishing", started_at: "2026-10-16T19:00:00.000Z", finished_at: null, message: null, error: null } }],
-    ["update_status", { site_version: "0.1.0", build: null, installed_version: null, update_available: null, latest_release: null, latest_is_newer: null, live_release: null, mac_online: false }],
-    ["update_site", { started: true, action: "update", job_id: "j1", message: "update started" }],
   ];
   const lampAction = { id: "dim", title: "Dim the lamp", description: "", args: "level: 10 | 50 (required)", risk: "low", asks_first: false };
   const lampRead = { id: "state", title: "Lamp state", description: "On or off.", args: "no arguments", main: true };
@@ -1166,19 +1147,7 @@ test("the shapes the operations produce match the declared output schemas", () =
   assert.notDeepEqual(validate(schemaOf("start_chat"), { outcome: "maybe" }), [], "the validator does catch a bad value");
 });
 
-test("update_site runs only for a signed-in ChatGPT user, with a known action", async () => {
-  const { ops, calls } = fakeOps();
-  const anonymous = createMcpHandler({ config: configured(), ops });
-  const refused = await anonymous(call("update_site", { action: "update" }));
-  assert.equal(refused.result.isError, true);
-  assert.match(refused.result.content[0].text, /signed-in ChatGPT user/);
-  const signedIn = createMcpHandler({ config: configured(), ops, caller: { identified: true } });
-  assert.equal((await signedIn(call("update_site", { action: "deploy-anything" }))).error.code, -32602);
-  await signedIn(call("update_site", { action: "rollback" }));
-  assert.deepEqual(calls.map((c) => [c.name, c.args]), [["releaseStart", { action: "rollback" }]]);
-});
-
-test("plugin_read and plugin_action pass their arguments; actions need a signed-in ChatGPT user", async () => {
+test("plugin_read and plugin_action pass their arguments; actions need a signed-in user", async () => {
   const { ops, calls } = fakeOps();
   const anonymous = createMcpHandler({ config: configured(), ops });
   await anonymous(call("plugin_read", {}));
@@ -1186,7 +1155,7 @@ test("plugin_read and plugin_action pass their arguments; actions need a signed-
   assert.equal((await anonymous(call("plugin_read", { plugin: "lamp", args: [1] }))).error.code, -32602);
   const refused = await anonymous(call("plugin_action", { plugin: "lamp", operation: "dim", args: { level: 10 } }));
   assert.equal(refused.result.isError, true);
-  assert.match(refused.result.content[0].text, /signed-in ChatGPT user/);
+  assert.match(refused.result.content[0].text, /signed-in user/);
   const signedIn = createMcpHandler({ config: configured(), ops, caller: { identified: true } });
   assert.equal((await signedIn(call("plugin_action", { plugin: "lamp" }))).error.code, -32602, "an action needs its operation");
   await signedIn(call("plugin_action", { plugin: "lamp", operation: "off", confirmation: "abc.def" }));
@@ -1222,13 +1191,6 @@ test("a failed plugin action never reads as done", async () => {
   assert.match(outcome.result.content[0].text, /Unknown whether it took effect/);
 });
 
-test("update_status asks the Mac with the version this Site is built from", async () => {
-  const { ops, calls } = fakeOps();
-  await createMcpHandler({ config: configured(), ops })(call("update_status", {}));
-  assert.equal(calls[0].name, "releaseStatus");
-  assert.deepEqual(calls[0].args, { siteVersion: VERSION, build: BUILD.source });
-});
-
 test("no tool declares a nullable object, which ChatGPT may refuse in a tool list", () => {
   const walk = (schema, path) => {
     if (!schema || typeof schema !== "object") return [];
@@ -1245,9 +1207,7 @@ test("show_images is linked to a versioned widget that resources/read serves", a
   const uri = tool._meta.ui.resourceUri;
   assert.match(uri, /^ui:\/\/god-mode\/images-[0-9a-f]{8}\.html$/);
   assert.equal(tool._meta["openai/outputTemplate"], uri, "ChatGPT's alias points at the same template");
-  for (const method of ["initialize", "server/discover"]) {
-    assert.deepEqual((await handle(rpc(method))).result.capabilities, { tools: {}, resources: {} }, method);
-  }
+  assert.deepEqual((await handle(rpc("initialize"))).result.capabilities, { tools: {}, resources: {} });
   const listed = (await handle(rpc("resources/list"))).result.resources;
   assert.deepEqual(listed.map((r) => [r.uri, r.mimeType]), [[uri, "text/html;profile=mcp-app"]]);
   assert.deepEqual((await handle(rpc("resources/templates/list"))).result.resourceTemplates, []);
@@ -1274,7 +1234,7 @@ test("show_images passes its arguments, hands the widget its _meta and keeps the
   const log = fakeLog();
   const handle = createMcpHandler({ config: configured(), ops, log });
   const response = await handle(call("show_images", { chat: "fleet", turn: 2, image: 1 }));
-  assert.deepEqual(calls.at(-1), { name: "showImages", url: SECRET, args: { chat: "fleet", turn: 2, image: 1, count: undefined } });
+  assert.deepEqual(calls.at(-1), { name: "showImages", url: DAEMON, args: { chat: "fleet", turn: 2, image: 1, count: undefined } });
   assert.deepEqual(response.result._meta, meta);
   assert.match(response.result.content[0].text, /^Showing 1 image/);
   assert.ok(!response.result.content[0].text.includes(bytes), "the model-facing text carries no bytes");

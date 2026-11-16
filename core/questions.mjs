@@ -32,7 +32,7 @@ export function parseQuestions(input) {
       // Where Paseo's form shows a text box for the user's own words.
       ownWords: options.length === 0 || q.allowOther === true || q.isOther === true,
       allowEmpty: q.allowEmpty === true,
-      // Codex asks for a secret this way (a key, a password): never through ChatGPT.
+      // Codex asks for a secret this way (a key, a password): never through God Mode.
       secret: q.isSecret === true,
     });
   }
@@ -42,7 +42,7 @@ export function parseQuestions(input) {
 // Why God Mode cannot fill a question request, or null when it can.
 export function cannotFill(permission, questions = parseQuestions(permission.input)) {
   if (!questions) return "its form is not one God Mode can read";
-  if (questions.some((q) => q.secret)) return "it asks for a secret, which must not go through ChatGPT";
+  if (questions.some((q) => q.secret)) return "it asks for a secret, which must not go through God Mode";
   // Paseo keys the answers by header, so questions that share one cannot be told apart.
   if (new Set(questions.map((q) => q.header)).size !== questions.length) return "two of its questions share a header";
   return null;

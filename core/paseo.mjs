@@ -1,14 +1,11 @@
-// Paseo operations behind the God Mode tools. Each call opens one relay
-// connection, does its work and closes; a Worker cannot keep a socket between
-// requests. Every operation returns { text, data }: text to be read or spoken
-// by ChatGPT, and data, the same facts as fields (the tools' structuredContent).
+// Paseo operations behind the God Mode tools. Each call opens one connection to the
+// Paseo daemon on this Mac, does its work and closes. Every operation returns
+// { text, data }: text to be read or spoken by the assistant, and data, the same
+// facts as fields (the tools' structuredContent).
 //
-// The pairing URL (from `paseo pair`) is a full key to the daemon: it is passed
-// in, never logged, and scrubbed from error messages.
-import { parseConnectionOfferFromUrl } from "@getpaseo/protocol/connection-offer";
-import { buildRelayWebSocketUrl } from "@getpaseo/protocol/daemon-endpoints";
-// Unsupported import path: the public createPaseoClient cannot use the relay.
-// Keep @getpaseo/* pinned and re-run core/probe.mjs before bumping it.
+// `target` says how to reach the daemon: url() and credential() are read on every
+// call, so a restarted daemon is picked up; secret signs confirmations.
+// Unsupported import path: keep @getpaseo/* pinned and re-run core/probe.mjs before bumping it.
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
 import {
   activityData,
@@ -25,7 +22,6 @@ import {
   contextLine,
   contextOf,
   describePermission,
-  describeRelease,
   describeStep,
   imageHint,
   imageMime,
@@ -48,9 +44,6 @@ import {
   pinnedResult,
   pinResult,
   pinRowFor,
-  releaseData,
-  repliedOutcome,
-  replyPart,
   resolve,
   rowQuestion,
   rowsQuestion,
@@ -89,13 +82,10 @@ import {
 } from "./capabilities.mjs";
 import {
   adapterFor,
-  afterCommand,
   commandData,
-  commandResult,
   commandText,
   compactionNote,
   confirmText,
-  contextChange,
   describeCommands,
   filterCommands,
   findCommand,
@@ -108,8 +98,7 @@ import {
 import { catalogEntry, CHANGEABLE, changeResult, chooseChange, chooseStart, modelsData, modelsText, pickProvider, runtimeOf } from "./models.mjs";
 import { answeredResult, answerResponse, approvalResult, prepareAnswers, questionsNeedAnswers } from "./questions.mjs";
 
-const CONNECT_TIMEOUT_MS = 8_000;
-const MAX_WAIT_SECONDS = 25;
+const CONNECT_TIMEOUT_MS = 5_000;
 const CHAT_PAGE = 200;
 // Workspaces per page; Paseo serves at most 200.
 const WORKSPACE_PAGE = 200;
@@ -123,7 +112,7 @@ const ACTIVITY_SCAN = 12;
 const ACTIVITY_RECENT_MS = 3 * 3_600_000;
 const SUBAGENTS_SHOWN = 6;
 // read_activity for a named chat: how many of its subagents one answer lists, each with its result,
-// so that an answer stays within the size known to reach ChatGPT's model whole.
+// so that an answer stays within the size known to reach the model whole.
 const SUBAGENTS_PAGE = 15;
 const SUBAGENT_TAIL = 12;
 // show_images: what one answer carries (a Paseo screenshot is 50-500 KB) and how far it looks.
@@ -139,43 +128,26 @@ export class PaseoOffline extends Error {}
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
-function scrub(message, offer) {
-  let text = String(message ?? "");
-  for (const secret of [offer.daemonPublicKeyB64, offer.serverId]) {
-    if (secret) text = text.replaceAll(secret, "[redacted]");
-  }
-  return text;
-}
-
-async function withDaemon(pairingUrl, fn) {
-  const offer = parseConnectionOfferFromUrl(pairingUrl);
-  if (!offer) {
-    throw new Error("PASEO_PAIRING_URL has no #offer= fragment");
-  }
+async function withDaemon(target, fn) {
+  const url = target?.url?.();
+  if (!url) throw new PaseoOffline("Paseo is not running on this Mac, or it listens on a unix socket.");
   const client = new DaemonClient({
-    url: buildRelayWebSocketUrl({
-      endpoint: offer.relay.endpoint,
-      serverId: offer.serverId,
-      role: "client",
-      useTls: offer.relay.useTls ?? true,
-    }),
+    url,
     // A fresh id per connection, so parallel tool calls never look like one client.
     clientId: `god-mode-${crypto.randomUUID()}`,
     clientType: "mcp",
     connectTimeoutMs: CONNECT_TIMEOUT_MS,
-    e2ee: { enabled: true, daemonPublicKeyB64: offer.daemonPublicKeyB64 },
+    localCredential: () => target.credential?.() ?? undefined,
     reconnect: { enabled: false },
   });
   try {
     await client.connect();
   } catch (error) {
     await client.close().catch(() => {});
-    throw new PaseoOffline(scrub(error?.message, offer));
+    throw new PaseoOffline(String(error?.message ?? error));
   }
   try {
     return await fn(client);
-  } catch (error) {
-    throw new Error(scrub(error?.message, offer));
   } finally {
     await client.close().catch(() => {});
   }
@@ -292,7 +264,7 @@ async function pickChat(client, query, chats, { read = false } = {}) {
   return { ask: chatQuestion(query, settled.ask, settled.ask === "no_match" ? settled.chats.slice(0, 3) : settled.chats, { read }) };
 }
 
-// With no match the whole project list comes back, so ChatGPT can map a spoken
+// With no match the whole project list comes back, so the assistant can map a spoken
 // name ("прокси") to its spelling ("proxy") and retry without asking.
 function pickProject(projects, query) {
   const found = resolve(projects, query, { id: () => "", text: (p) => p.name });
@@ -335,8 +307,8 @@ async function countSubagents(client, chats) {
   });
 }
 
-export async function overview(pairingUrl, { hours = 12 } = {}) {
-  return withDaemon(pairingUrl, async (client) => {
+export async function overview(target, { hours = 12 } = {}) {
+  return withDaemon(target, async (client) => {
     const [projects, chats] = await Promise.all([fetchProjects(client), fetchChats(client)]);
     const now = Date.now();
     const since = now - hours * 3_600_000;
@@ -377,8 +349,8 @@ const STATUS_FILTERS = {
   all: () => true,
 };
 
-export async function listChats(pairingUrl, { project, status = "all", query, includeArchived = false, limit = 10 } = {}) {
-  return withDaemon(pairingUrl, async (client) => {
+export async function listChats(target, { project, status = "all", query, includeArchived = false, limit = 10 } = {}) {
+  return withDaemon(target, async (client) => {
     let scope = "all projects";
     let projectName = null;
     if (project) {
@@ -487,8 +459,8 @@ async function pickWorkspace(client, query, project) {
   return { place: { name: row.project, directory, workspaceId: row.id, workspace: row.name } };
 }
 
-export async function listPinnedChats(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => listPinnedChatsOn(client, args));
+export async function listPinnedChats(target, args = {}) {
+  return withDaemon(target, (client) => listPinnedChatsOn(client, args));
 }
 
 // list_pinned_chats over an open connection (tests drive it with a fake client): every pinned row
@@ -859,8 +831,8 @@ function withNote(result, note) {
   return { text: `${note}\n${result.text}`, data: { ...result.data, note } };
 }
 
-export async function readChat(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => readChatOn(client, args));
+export async function readChat(target, args = {}) {
+  return withDaemon(target, (client) => readChatOn(client, args));
 }
 
 // read_chat over an open connection (tests drive it with a fake client).
@@ -1009,8 +981,8 @@ async function subagentMessage(client, agentId, id) {
   return { missing: `Subagent "${title}" has no message with words in it${before ? " among its latest entries" : ""}.` };
 }
 
-export async function readMessage(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => readMessageOn(client, args));
+export async function readMessage(target, args = {}) {
+  return withDaemon(target, (client) => readMessageOn(client, args));
 }
 
 // read_message over an open connection (tests drive it with a fake client). One message of a chat,
@@ -1145,8 +1117,8 @@ export async function showImagesOn(client, { chat, turn, image, count } = {}) {
   return { text: note ? `${note}\n${text}` : text, data, ...(shown.length ? { meta } : {}) };
 }
 
-export async function showImages(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => showImagesOn(client, args));
+export async function showImages(target, args = {}) {
+  return withDaemon(target, (client) => showImagesOn(client, args));
 }
 
 // What a chat's agent and its subagents are doing now. `known` saves a second listing when the
@@ -1192,8 +1164,8 @@ async function activityOf(client, chat, { known, offset } = {}) {
 
 // read_activity: one chat, or every chat where an agent or a subagent is working now. A turn can
 // end while backgrounded subagents keep going, so recent idle chats are asked too.
-export async function readActivity(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => readActivityOn(client, args));
+export async function readActivity(target, args = {}) {
+  return withDaemon(target, (client) => readActivityOn(client, args));
 }
 
 // read_activity over an open connection (tests drive it with a fake client).
@@ -1224,8 +1196,8 @@ export async function readActivityOn(client, { chat, maxChars, offset } = {}) {
 
 // Finds where something was said, across many chats at once: Paseo searches
 // one chat at a time, so the chats are searched here in parallel.
-export async function searchMessages(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => searchMessagesOn(client, args));
+export async function searchMessages(target, args = {}) {
+  return withDaemon(target, (client) => searchMessagesOn(client, args));
 }
 
 // search_messages over an open connection (tests drive it with a fake client).
@@ -1293,30 +1265,12 @@ export async function searchMessagesOn(client, { query, project, chat, includeAr
   );
 }
 
-// Waits up to `seconds` for the agent's turn to end and describes the outcome.
-async function awaitReply(client, agentId, seconds) {
-  const wait = clamp(seconds, 0, MAX_WAIT_SECONDS);
-  if (wait === 0) return { text: "Not waiting for the reply; offer to check later.", data: { outcome: "not_waiting", delivered: true } };
-  const state = await client.waitForFinish(agentId, wait * 1000);
-  switch (state.status) {
-    case "idle":
-      return repliedOutcome(state.lastMessage);
-    case "permission": {
-      const pending = state.final?.pendingPermissions?.[0];
-      const approval = pending ? describePermission(pending) : "a tool call";
-      return { text: `Agent is waiting for approval: ${approval}.`, data: { outcome: "waiting_for_approval", delivered: true, approval } };
-    }
-    case "error": {
-      const error = truncate(state.error ?? "unknown", 300);
-      return { text: `Agent stopped with an error: ${error}`, data: { outcome: "error", delivered: true, error } };
-    }
-    default:
-      return { text: "Agent is still working. Tell the user and offer to check later; do not poll.", data: { outcome: "still_working", delivered: true } };
-  }
-}
+// God Mode never waits for an agent's reply: a write returns as soon as the message arrived, and
+// read_chat tells what the agent said.
+const NOT_WAITING = { text: "Not waiting for the reply; offer to check later with read_chat.", data: { outcome: "not_waiting", delivered: true } };
 
-export async function startChat(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => startChatOn(client, args));
+export async function startChat(target, args = {}) {
+  return withDaemon(target, (client) => startChatOn(client, args));
 }
 
 // start_chat over an open connection (tests drive it with a fake client). The runtime, model,
@@ -1324,7 +1278,7 @@ export async function startChat(pairingUrl, args = {}) {
 // are the site's settings for new chats, used where they fit the runtime the chat gets. Without
 // `workspace` the chat gets a workspace of its own, as Paseo's New chat does; with one it opens in that
 // workspace as another tab, in its folder, and Paseo keeps the workspace's name.
-export async function startChatOn(client, { project, workspace, prompt, provider, model, thinking, mode, defaults = {}, waitSeconds = 15 } = {}) {
+export async function startChatOn(client, { project, workspace, prompt, provider, model, thinking, mode, defaults = {} } = {}) {
   let place;
   if (workspace) {
     const picked = await pickWorkspace(client, workspace, project);
@@ -1349,7 +1303,7 @@ export async function startChatOn(client, { project, workspace, prompt, provider
     labels: { source: "god-mode" },
   });
   const runtime = runtimeOf(choice, agent);
-  const outcome = await awaitReply(client, agent.id, waitSeconds);
+  const outcome = NOT_WAITING;
   const where = place.workspaceId ? `${place.name}, in its workspace "${truncate(place.workspace, 70)}"` : place.name;
   const workspaceId = agent.workspaceId ?? place.workspaceId;
   return {
@@ -1366,12 +1320,12 @@ export async function startChatOn(client, { project, workspace, prompt, provider
   };
 }
 
-export async function sendMessage(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => sendMessageOn(client, args));
+export async function sendMessage(target, args = {}) {
+  return withDaemon(target, (client) => sendMessageOn(client, args));
 }
 
 // send_message over an open connection (tests drive it with a fake client).
-export async function sendMessageOn(client, { chat, text, ifBusy, ifArchived, waitSeconds = 15 } = {}) {
+export async function sendMessageOn(client, { chat, text, ifBusy, ifArchived } = {}) {
   const chats = await fetchChats(client);
   const picked = await pickChat(client, chat, chats);
   if (picked.ask) return picked.ask;
@@ -1399,7 +1353,7 @@ export async function sendMessageOn(client, { chat, text, ifBusy, ifArchived, wa
     };
   }
   await client.sendAgentMessage(target.id, text, busy ? { activeTurnBehavior: ifBusy } : undefined);
-  const outcome = await awaitReply(client, target.id, waitSeconds);
+  const outcome = NOT_WAITING;
   const back = target.archived ? " It was archived; the message brought it back." : "";
   return {
     text: `Sent to ${title}; it arrived.${back} Do not send it again.\n${outcome.text}`,
@@ -1407,8 +1361,8 @@ export async function sendMessageOn(client, { chat, text, ifBusy, ifArchived, wa
   };
 }
 
-export async function answerApproval(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => answerApprovalOn(client, args));
+export async function answerApproval(target, args = {}) {
+  return withDaemon(target, (client) => answerApprovalOn(client, args));
 }
 
 // answer_approval over an open connection (tests drive it with a fake client).
@@ -1461,8 +1415,8 @@ export async function answerApprovalOn(client, { chat, decision, request } = {})
 // options the user chose, sent as Paseo's own form sends them: allow, with the request's input and
 // its answers keyed by header.
 
-export async function readApproval(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => readApprovalOn(client, args));
+export async function readApproval(target, args = {}) {
+  return withDaemon(target, (client) => readApprovalOn(client, args));
 }
 
 // read_approval over an open connection (tests drive it with a fake client): every request the chat
@@ -1473,23 +1427,23 @@ export async function readApprovalOn(client, { chat } = {}) {
   return withNote(approvalResult(picked.chat), picked.note);
 }
 
-export async function answerQuestions(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => answerQuestionsOn(client, args));
+export async function answerQuestions(target, args = {}) {
+  return withDaemon(target, (client) => answerQuestionsOn(client, args));
 }
 
 // answer_questions over an open connection (tests drive it with a fake client). Nothing is sent
 // unless the request is still the one read_approval gave and the answers fill its every question.
-export async function answerQuestionsOn(client, { chat, request, answers, waitSeconds = 15 } = {}) {
+export async function answerQuestionsOn(client, { chat, request, answers } = {}) {
   const picked = await pickChat(client, chat);
   if (picked.ask) return picked.ask;
   const prepared = prepareAnswers(picked.chat, request, answers);
   if (prepared.refused) return prepared.refused;
   await client.respondToPermissionAndWait(picked.chat.id, prepared.permission.id, answerResponse(prepared.permission, prepared.filled), 10_000);
-  return answeredResult(picked.chat, request, prepared.filled, await awaitReply(client, picked.chat.id, waitSeconds));
+  return answeredResult(picked.chat, request, prepared.filled, NOT_WAITING);
 }
 
-export async function stopChat(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => stopChatOn(client, args));
+export async function stopChat(target, args = {}) {
+  return withDaemon(target, (client) => stopChatOn(client, args));
 }
 
 // stop_chat over an open connection (tests drive it with a fake client).
@@ -1510,8 +1464,8 @@ export async function stopChatOn(client, { chat } = {}) {
 // Archives a chat the way Paseo's Archive does: hidden from the list, history kept, and a new message
 // brings it back. Paseo would interrupt a working agent and its subagents, so a busy chat is left
 // alone and the user decides.
-export async function archiveChat(pairingUrl, { chat } = {}) {
-  return withDaemon(pairingUrl, (client) => archiveChatOn(client, { chat }));
+export async function archiveChat(target, { chat } = {}) {
+  return withDaemon(target, (client) => archiveChatOn(client, { chat }));
 }
 
 // archive_chat over an open connection (tests drive it with a fake client).
@@ -1538,8 +1492,8 @@ export async function archiveChatOn(client, { chat } = {}) {
   };
 }
 
-export async function pinChat(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => pinChatOn(client, args));
+export async function pinChat(target, args = {}) {
+  return withDaemon(target, (client) => pinChatOn(client, args));
 }
 
 // pin_chat over an open connection (tests drive it with a fake client). Paseo pins a sidebar row, a
@@ -1593,8 +1547,8 @@ async function renameAndReadBack(request, read) {
 
 const notShown = (shown, name) => (shown === null ? "Paseo accepted the new name, but it could not be read back" : `Paseo accepted "${truncate(name, 70)}", but it does not show that name`);
 
-export async function renameChat(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => renameChatOn(client, args));
+export async function renameChat(target, args = {}) {
+  return withDaemon(target, (client) => renameChatOn(client, args));
 }
 
 // rename_chat over an open connection (tests drive it with a fake client), with the request of
@@ -1613,8 +1567,8 @@ export async function renameChatOn(client, { chat, name } = {}) {
   return shown === name ? result("renamed", { shown }) : result("error", { shown, error: failure ?? notShown(shown, name) });
 }
 
-export async function renameWorkspace(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => renameWorkspaceOn(client, args));
+export async function renameWorkspace(target, args = {}) {
+  return withDaemon(target, (client) => renameWorkspaceOn(client, args));
 }
 
 // rename_workspace over an open connection (tests drive it with a fake client), with the request of
@@ -1654,8 +1608,8 @@ async function fetchCatalog(client, cwd) {
   );
 }
 
-export async function listModels(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => listModelsOn(client, args));
+export async function listModels(target, args = {}) {
+  return withDaemon(target, (client) => listModelsOn(client, args));
 }
 
 // list_models over an open connection (tests drive it with a fake client).
@@ -1670,8 +1624,8 @@ export async function listModelsOn(client, { provider } = {}) {
   return { text: modelsText(shown), data: { providers: modelsData(shown) } };
 }
 
-export async function setChatModel(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => setChatModelOn(client, args));
+export async function setChatModel(target, args = {}) {
+  return withDaemon(target, (client) => setChatModelOn(client, args));
 }
 
 // The model and thinking level a chat runs on, as Paseo reports them.
@@ -1745,13 +1699,9 @@ export async function setChatModelOn(client, { chat, model, thinking } = {}) {
 
 // ---- Slash commands -----------------------------------------------------------------------------
 // list_slash_commands and run_slash_command. Which commands each provider runs, and how, is in
-// slash.mjs; this part asks Paseo for a chat's commands, sends one as the message its provider
-// interprets, and reads back what that message did.
+// slash.mjs; this part asks Paseo for a chat's commands and sends one as the message its provider
+// interprets.
 
-const COMMAND_ENTRIES = 200;
-const COMMAND_POLL_MS = 1_000;
-
-const pause = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
 // The chat's commands with God Mode's verdict on each, or { error } when Paseo could not list them
 // (an agent that cannot start, a provider that is not installed).
@@ -1761,8 +1711,8 @@ async function chatCommands(client, chat) {
   return { catalog: describeCommands(chat.provider, payload?.commands ?? []) };
 }
 
-export async function listSlashCommands(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => listSlashCommandsOn(client, args));
+export async function listSlashCommands(target, args = {}) {
+  return withDaemon(target, (client) => listSlashCommandsOn(client, args));
 }
 
 // list_slash_commands over an open connection (tests drive it with a fake client). Listing starts
@@ -1805,32 +1755,9 @@ export async function listSlashCommandsOn(client, { chat, query, limit = 60 } = 
   );
 }
 
-export async function runSlashCommand(pairingUrl, args = {}) {
-  // The pairing link is the Site's one secret, so confirmations are signed with it.
-  return withDaemon(pairingUrl, (client) => runSlashCommandOn(client, { ...args, secret: pairingUrl }));
-}
-
-// What the timeline gained after the command God Mode sent, read against the chat's state now.
-// The command's own message is found by its client message id; until it shows up, nothing is known.
-async function readCommandResult(client, target, entry, cursor, messageId) {
-  const page = await client.fetchAgentTimeline(target.id, { direction: "after", cursor, limit: COMMAND_ENTRIES, projection: "projected" }).catch(() => null);
-  let items = page ? afterCommand(page.entries.map((e) => e.item), messageId) : null;
-  if (!items) {
-    // A timeline Paseo rebuilt (a new epoch) answers the old cursor with nothing: look at the latest.
-    const tail = await client.fetchAgentTimeline(target.id, { direction: "tail", limit: COMMAND_ENTRIES, projection: "projected" });
-    items = afterCommand(tail.entries.map((e) => e.item), messageId);
-  }
-  if (!items) return { outcome: "still_working", settled: false };
-  const fetched = await client.fetchAgent(target.id);
-  const now = fetched ? toChat(fetched) : null;
-  const pending = now?.permissions?.[0];
-  return commandResult(entry, {
-    items,
-    status: now?.status ?? null,
-    usageBefore: target.usage,
-    usageAfter: now?.usage ?? null,
-    approval: pending ? describePermission(pending) : null,
-  });
+export async function runSlashCommand(target, args = {}) {
+  // Confirmations are signed with the plugin's own secret.
+  return withDaemon(target, (client) => runSlashCommandOn(client, { ...args, secret: target.secret }));
 }
 
 function commandQuestion(target, catalog, query, candidates) {
@@ -1846,38 +1773,10 @@ function commandQuestion(target, catalog, query, candidates) {
   );
 }
 
-// The answer to a command that reached the chat: what it did, as far as the wait allowed.
-function commandAnswer(title, text, entry, result, sent) {
-  const once = "It ran once; never run it again for this request.";
-  switch (result.outcome) {
-    case "done": {
-      const change = contextChange(result.context);
-      return { text: `Ran ${text} in ${title}: the context was compacted${change ? ` (${change})` : ""}. ${once}`, data: { ...sent, outcome: "done", context: result.context } };
-    }
-    case "refused":
-      return { text: `${text} reached ${title} but did not run: ${result.reason} Nothing changed.`, data: { ...sent, outcome: "refused", reason: result.reason } };
-    case "replied": {
-      if (!result.reply) return { text: `Ran ${text} in ${title}; it finished without output. ${once}`, data: { ...sent, outcome: "replied", reply: "" } };
-      const { text: shown, images } = withImagePlaceholders(result.reply);
-      const part = replyPart(shown);
-      const extra = [part.note, images.length ? `The result has ${images.length} image(s); show_images puts them on the user's screen.` : null].filter(Boolean).map((line) => `\n${line}`).join("");
-      return { text: `Ran ${text} in ${title}. ${once} Result:\n${part.reply}${extra}`, data: { ...sent, outcome: "replied", ...part.data, ...(images.length ? { images: images.length } : {}) } };
-    }
-    case "waiting_for_approval":
-      return { text: `Sent ${text} to ${title}; it arrived and is waiting for approval: ${result.approval}. ${once}`, data: { ...sent, outcome: "waiting_for_approval", approval: result.approval } };
-    case "error":
-      return { text: `Sent ${text} to ${title}; it arrived and ended with an error: ${result.error}`, data: { ...sent, outcome: "error", error: result.error } };
-    default: {
-      const doing = entry.compaction ? " (compacting the context)" : "";
-      return { text: `Sent ${text} to ${title}; it arrived and is still running${doing}. ${once} Offer to check later with read_chat; do not poll.`, data: { ...sent, outcome: "still_working" } };
-    }
-  }
-}
-
 // run_slash_command over an open connection (tests drive it with a fake client): the chat's own
 // list decides what exists, the adapter what may run and how, the confirmation what the user agreed
-// to; then one message, and what it did.
-export async function runSlashCommandOn(client, { chat, command, args, ifBusy, confirmation, waitSeconds = 15, secret, now = Date.now(), pollMs = COMMAND_POLL_MS } = {}) {
+// to; then one message. What the command did, read_chat tells later.
+export async function runSlashCommandOn(client, { chat, command, args, ifBusy, confirmation, secret, now = Date.now() } = {}) {
   const picked = await pickChat(client, chat);
   if (picked.ask) return picked.ask;
   const target = picked.chat;
@@ -1928,61 +1827,11 @@ export async function runSlashCommandOn(client, { chat, command, args, ifBusy, c
     }
   }
 
-  const tail = await client.fetchAgentTimeline(target.id, { direction: "tail", limit: 1, projection: "projected" });
-  const cursor = { epoch: tail.epoch, seq: tail.entries.at(-1)?.seqStart ?? 0 };
-  const messageId = crypto.randomUUID();
-  await client.sendAgentMessage(target.id, text, { messageId, ...(interrupting ? { activeTurnBehavior: "interrupt" } : {}) });
-  const sent = { ...base, delivered: true, risk: risk.risk };
-  const wait = clamp(waitSeconds, 0, MAX_WAIT_SECONDS);
-  if (wait === 0) {
-    return { text: `Sent ${text} to ${title}; it arrived. It ran once; never run it again for this request. Not waiting for the result; offer to check later.`, data: { ...sent, outcome: "not_waiting" } };
-  }
-  const deadline = Date.now() + wait * 1000;
-  let result = null;
-  if (!entry.outOfBand) {
-    // A turn of its own: wait for it to end. A command Paseo runs outside any turn (Codex's
-    // /compact and /goal) has no turn to wait for, so its result is polled from the timeline.
-    await client.waitForFinish(target.id, wait * 1000);
-    result = await readCommandResult(client, target, entry, cursor, messageId);
-  }
-  while (!result?.settled && Date.now() + pollMs < deadline) {
-    if (result) await pause(pollMs);
-    result = await readCommandResult(client, target, entry, cursor, messageId);
-  }
-  return commandAnswer(title, text, entry, result ?? { outcome: "still_working" }, sent);
-}
-
-// The God Mode plugin in Paseo runs updates and rollbacks of this Site on the Mac; these two reach
-// it through the same relay connection as every other tool.
-const GOD_MODE = "god-mode";
-
-export async function releaseStatus(pairingUrl, { siteVersion, build = null }) {
-  let status = null;
-  try {
-    status = await withDaemon(pairingUrl, (client) => client.invokePluginRpc(GOD_MODE, "god-mode.release.status", { log: false }));
-  } catch (error) {
-    // Offline still has an answer: the version this Site is running.
-    if (!(error instanceof PaseoOffline)) throw error;
-  }
-  const data = releaseData(status, siteVersion, build);
-  return { text: describeRelease(data), data };
-}
-
-export async function releaseStart(pairingUrl, { action }) {
-  return withDaemon(pairingUrl, async (client) => {
-    const what = action === "rollback" ? "rollback" : "update";
-    try {
-      const { job } = await client.invokePluginRpc(GOD_MODE, "god-mode.release.start", { action });
-      return {
-        text: `Started the ${what} on the Mac. It takes a few minutes and puts the previous version back by itself if the new one fails its check; ask for the update status any time.`,
-        data: { started: true, action, job_id: job.id, message: `${what} started` },
-      };
-    } catch (error) {
-      const message = String(error?.message ?? error);
-      if (/already running/i.test(message)) return { text: `Nothing started: ${message}`, data: { started: false, action, job_id: null, message } };
-      throw error;
-    }
-  });
+  await client.sendAgentMessage(target.id, text, { messageId: crypto.randomUUID(), ...(interrupting ? { activeTurnBehavior: "interrupt" } : {}) });
+  return {
+    text: `Sent ${text} to ${title}; it arrived. It ran once; never run it again for this request. Not waiting for the result; offer to check later with read_chat.`,
+    data: { ...base, delivered: true, risk: risk.risk, outcome: "not_waiting" },
+  };
 }
 
 // ---- Plugins that describe themselves (meta.describe) ----------------------------------------
@@ -2018,7 +1867,7 @@ async function describePlugins(client, query) {
         return parsed.invalid ? { ...entry, reason: `its ${DESCRIBE_METHOD} is not usable: ${parsed.invalid}` } : { ...entry, capabilities: parsed.capabilities };
       } catch (error) {
         const message = String(error?.message ?? error);
-        return { ...entry, reason: /does not contribute RPC/i.test(message) ? "does not describe itself to ChatGPT" : truncate(message, 160) };
+        return { ...entry, reason: /does not contribute RPC/i.test(message) ? "does not describe itself to God Mode" : truncate(message, 160) };
       }
     }),
   );
@@ -2042,7 +1891,7 @@ function pluginData(entry) {
 function catalogText(entries) {
   const usable = entries.filter((e) => e.capabilities);
   const others = entries.filter((e) => !e.capabilities);
-  const lines = [usable.length ? "Plugins ChatGPT can use:" : "No installed plugin offers anything to ChatGPT yet."];
+  const lines = [usable.length ? "Plugins God Mode can use:" : "No installed plugin offers anything to God Mode yet."];
   for (const { id, capabilities: caps } of usable) {
     const reads = caps.operations.filter((op) => op.kind === "read").map((op) => `${op.id}${op.default ? " (main)" : ""}`);
     lines.push(`- ${caps.title} (${id}): ${caps.summary}`.trimEnd());
@@ -2051,7 +1900,7 @@ function catalogText(entries) {
     if (actions) lines.push(`  ${actions}`);
     if (caps.skipped.length) lines.push(`  Dropped from its description: ${caps.skipped.map((s) => `${s.id} (${s.reason})`).join("; ")}.`);
   }
-  if (others.length) lines.push(`Installed, nothing for ChatGPT: ${others.map((e) => `${e.name} (${e.reason})`).join("; ")}.`);
+  if (others.length) lines.push(`Installed, nothing for God Mode: ${others.map((e) => `${e.name} (${e.reason})`).join("; ")}.`);
   return lines.join("\n");
 }
 
@@ -2060,7 +1909,7 @@ async function pickDescribed(client, query) {
   const entries = await describePlugins(client, query);
   const found = pickPlugin(entries, query);
   if (found.match && !found.match.capabilities) {
-    return { ask: { text: `${found.match.name} is installed but offers nothing to ChatGPT: ${found.match.reason}.`, data: { plugins: [pluginData(found.match)] } } };
+    return { ask: { text: `${found.match.name} is installed but offers nothing to God Mode: ${found.match.reason}.`, data: { plugins: [pluginData(found.match)] } } };
   }
   if (found.match) return { entry: found.match };
   const usable = entries.filter((e) => e.capabilities);
@@ -2068,7 +1917,7 @@ async function pickDescribed(client, query) {
   const lines = names.map((e) => `${e.capabilities?.title ?? e.name} (${e.id})`);
   const text = found.candidates.length
     ? candidatesText("plugin", query, lines)
-    : `No plugin matches "${query}". ${usable.length ? `Plugins ChatGPT can use: ${lines.join(", ")}.` : "No installed plugin offers anything to ChatGPT."}`;
+    : `No plugin matches "${query}". ${usable.length ? `Plugins God Mode can use: ${lines.join(", ")}.` : "No installed plugin offers anything to God Mode."}`;
   return { ask: clarification("plugin", query, text, names.map(pluginData)) };
 }
 
@@ -2079,8 +1928,8 @@ function operationQuestion(entry, query, candidates, kind) {
   return clarification("operation", query, text, candidates.map((op) => ({ id: op.id, title: op.title })));
 }
 
-export async function pluginRead(pairingUrl, args = {}) {
-  return withDaemon(pairingUrl, (client) => pluginReadOn(client, args));
+export async function pluginRead(target, args = {}) {
+  return withDaemon(target, (client) => pluginReadOn(client, args));
 }
 
 // plugin_read over an open connection: without a plugin, what every plugin offers; with one, one
@@ -2157,13 +2006,13 @@ async function readTarget(client, entry, op, args) {
   return shown.missing ? { unavailable: shown.missing } : { facts: shown.facts };
 }
 
-export async function pluginAction(pairingUrl, args = {}) {
-  // The pairing link is the Site's one secret, so confirmations are signed with it.
-  return withDaemon(pairingUrl, (client) => pluginActionOn(client, { ...args, secret: pairingUrl }));
+export async function pluginAction(target, args = {}) {
+  // Confirmations are signed with the plugin's own secret.
+  return withDaemon(target, (client) => pluginActionOn(client, { ...args, secret: target.secret }));
 }
 
 // plugin_action over an open connection. A low-risk action runs at once; anything else runs only
-// with the confirmation issued for exactly these arguments, after ChatGPT read its text to the user.
+// with the confirmation issued for exactly these arguments, after the assistant read its text to the user.
 export async function pluginActionOn(client, { plugin, operation, args, confirmation, secret, now = Date.now() } = {}) {
   const picked = await pickDescribed(client, plugin);
   if (picked.ask) return picked.ask;

@@ -88,35 +88,35 @@ const created = (paseo) => paseo.calls.filter((c) => c[0] === "create").map((c) 
 
 test("a workspace id opens the chat in that workspace's own folder, and the answer says it joined", async () => {
   const paseo = daemon();
-  const { text, data } = await startChatOn(paseo, { workspace: "wks_relay", prompt: "Reply OK.", waitSeconds: 5 });
+  const { text, data } = await startChatOn(paseo, { workspace: "wks_relay", prompt: "Reply OK." });
   assert.deepEqual(created(paseo), [{ provider: "claude", cwd: "/Users/r/proxy-worktrees/fix-relay", workspaceId: "wks_relay", initialPrompt: "Reply OK.", labels: { source: "god-mode" } }]);
   assert.deepEqual(paseo.calls.find((c) => c[0] === "snapshot")[1], { cwd: "/Users/r/proxy-worktrees/fix-relay" }, "the catalog of that folder");
   assert.match(text, /^Started a new chat in proxy, in its workspace "Fix relay" \(Claude, [^)]*\); the task arrived\. Do not start it again\./);
-  assert.deepEqual([data.project, data.workspace_id, data.new_workspace, data.outcome], ["proxy", "wks_relay", false, "replied"]);
+  assert.deepEqual([data.project, data.workspace_id, data.new_workspace, data.outcome], ["proxy", "wks_relay", false, "not_waiting"]);
 });
 
 test("a name settles on the row it names: its title, or the title of a chat in it, with or without the project", async () => {
   for (const name of ["Fix relay", "fix relay (proxy)", "Relay timeouts", "relay timeouts proxy", "fix-relay"]) {
     const paseo = daemon();
-    const result = await startChatOn(paseo, { workspace: name, prompt: "go", waitSeconds: 0 });
+    const result = await startChatOn(paseo, { workspace: name, prompt: "go" });
     assert.equal(created(paseo)[0]?.workspaceId, "wks_relay", name);
     assert.equal(result.data.new_workspace, false, name);
   }
   const empty = daemon();
-  await startChatOn(empty, { workspace: "Notes", prompt: "go", waitSeconds: 0 });
+  await startChatOn(empty, { workspace: "Notes", prompt: "go" });
   assert.equal(created(empty)[0].workspaceId, "wks_notes", "a row with no chat is reached by its title");
   assert.equal(created(empty)[0].cwd, "/Users/r/lab");
   const several = daemon();
-  await startChatOn(several, { workspace: "fleet map stage", prompt: "go", waitSeconds: 0 });
+  await startChatOn(several, { workspace: "fleet map stage", prompt: "go" });
   assert.equal(created(several)[0].workspaceId, "wks_fleet", "the words of one chat's title are enough: only that row has them all");
 });
 
 test("a project narrows the rows, and a workspace of another project is not taken", async () => {
   const inProxy = daemon();
-  await startChatOn(inProxy, { project: "proxy", workspace: "Fix relay", prompt: "go", waitSeconds: 0 });
+  await startChatOn(inProxy, { project: "proxy", workspace: "Fix relay", prompt: "go" });
   assert.equal(created(inProxy)[0].workspaceId, "wks_relay");
   const wrong = daemon();
-  const result = await startChatOn(wrong, { project: "lab", workspace: "Fix relay", prompt: "go", waitSeconds: 0 });
+  const result = await startChatOn(wrong, { project: "lab", workspace: "Fix relay", prompt: "go" });
   assert.equal(created(wrong).length, 0, "nothing started");
   assert.deepEqual([result.data.needs_clarification.kind, result.data.needs_clarification.reason], ["workspace", "no_match"]);
   assert.deepEqual(result.data.needs_clarification.candidates.map((c) => c.workspace_id).sort(), ["wks_notes", "wks_twin_a", "wks_twin_b"], "only lab's rows are offered");
@@ -143,18 +143,18 @@ test("two rows with the same name, a partial name and no match start nothing and
 
 test("without a workspace the chat gets one of its own, as before, and the answer names it for the next call", async () => {
   const paseo = daemon();
-  const { text, data } = await startChatOn(paseo, { project: "lab", prompt: "Reply OK.", waitSeconds: 5 });
+  const { text, data } = await startChatOn(paseo, { project: "lab", prompt: "Reply OK." });
   assert.deepEqual(created(paseo), [{ provider: "claude", cwd: "/Users/r/lab", initialPrompt: "Reply OK.", labels: { source: "god-mode" } }], "no workspaceId in the request");
   assert.match(text, /^Started a new chat in lab \(/);
   assert.deepEqual([data.workspace_id, data.new_workspace], ["wks_made_now", true], "its workspace, to open another chat beside it");
-  const beside = await startChatOn(paseo, { workspace: data.workspace_id, prompt: "Another.", waitSeconds: 0 });
+  const beside = await startChatOn(paseo, { workspace: data.workspace_id, prompt: "Another." });
   assert.deepEqual([beside.data.new_workspace, beside.data.workspace_id], [false, "wks_made_now"], "another chat beside the one just started");
   assert.deepEqual(created(paseo)[1], { provider: "claude", cwd: "/Users/r/lab", workspaceId: "wks_made_now", initialPrompt: "Another.", labels: { source: "god-mode" } });
 });
 
 test("the runtime, model and level asked for are checked in the workspace's catalog", async () => {
   const paseo = daemon();
-  const { data } = await startChatOn(paseo, { workspace: "wks_fleet", prompt: "go", model: "Opus 5.5", thinking: "max", waitSeconds: 0 });
+  const { data } = await startChatOn(paseo, { workspace: "wks_fleet", prompt: "go", model: "Opus 5.5", thinking: "max" });
   assert.deepEqual(created(paseo)[0], { provider: "claude", cwd: "/Users/r/proxy", workspaceId: "wks_fleet", initialPrompt: "go", model: "claude-opus-5-5", thinkingOptionId: "max", labels: { source: "god-mode" } });
   assert.equal(data.new_workspace, false);
   const bad = daemon();
